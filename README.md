@@ -1,5 +1,3 @@
-# Acre
-
 # Acre — Privacy-Preserving Income Verification for Gig Workers
 
 > **A zero-knowledge verification protocol that enables gig workers to prove income eligibility for loans — without revealing financial history.**
