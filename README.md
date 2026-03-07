@@ -556,7 +556,7 @@ Output: Atomic transfer group TX ID + loan disbursed
 ## 12. Project Structure
 
 ```
-zk-income/
+acre/
 │
 ├── circuits/                        # Noir ZK circuits
 │   ├── income_range.nr              # Core income range prover
@@ -624,8 +624,8 @@ npm install
 ### Clone and configure
 
 ```bash
-git clone https://github.com/your-org/zk-income
-cd zk-income
+git clone https://github.com/somehowliving/acre
+cd acre
 
 pip install -r requirements.txt
 cp .env.example .env
@@ -701,11 +701,11 @@ DeFi lending protocols on Algorand use the verified income signal as an undercol
 
 ## 17. Team
 
-**Team:** [Your Team Name]
+**Team:** [zkFarmers]
 
 | Member | Role |
 |--------|------|
-| Harsh Prajapati | Blockchain & ZK Engineer |
+| Nidhi Prajapati | Blockchain & ZK Engineer |
 
 ---
 
