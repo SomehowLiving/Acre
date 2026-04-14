@@ -4,9 +4,15 @@ const express = require('express');
 const cors = require('cors');
 const Reclaim = require('@reclaimprotocol/js-sdk');
 const crypto = require('crypto');
+const fs = require('fs');
+const path = require('path');
+const algosdk = require('algosdk');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
+const CONTRACTS_DIR = path.join(__dirname, 'contracts');
+const ABI_PATH = path.join(CONTRACTS_DIR, 'acre_abi.json');
+const DEPLOYED_APP_PATH = path.join(CONTRACTS_DIR, 'deployed_testnet_app.json');
 
 const allowedOrigins = (
   process.env.CORS_ORIGINS ||
@@ -28,6 +34,164 @@ app.use(
   })
 );
 app.use(express.json({ limit: '2mb' }));
+
+function requireEnv(name, fallback) {
+  const value = process.env[name] || (fallback ? process.env[fallback] : undefined);
+  if (!value) {
+    throw new Error(`Missing required environment variable: ${name}${fallback ? ` (or ${fallback})` : ''}`);
+  }
+  return value;
+}
+
+function loadAppId() {
+  const fromEnv = process.env.APP_ID || process.env.TESTNET_APP_ID;
+  if (fromEnv) return Number(fromEnv);
+
+  if (!fs.existsSync(DEPLOYED_APP_PATH)) {
+    throw new Error('Missing app id. Set APP_ID/TESTNET_APP_ID or create contracts/deployed_testnet_app.json');
+  }
+  const deployedInfo = JSON.parse(fs.readFileSync(DEPLOYED_APP_PATH, 'utf8'));
+  return Number(deployedInfo.appId);
+}
+
+function getVerifyIncomeMethod() {
+  if (!fs.existsSync(ABI_PATH)) {
+    throw new Error('Missing contracts/acre_abi.json');
+  }
+  const abiSpec = JSON.parse(fs.readFileSync(ABI_PATH, 'utf8'));
+  const contract = new algosdk.ABIContract(abiSpec);
+  const method = contract.methods.find((m) => m.name === 'verify_income');
+  if (!method) {
+    throw new Error('verify_income method not found in ABI');
+  }
+  return method;
+}
+
+async function waitForConfirmation(client, txId, timeoutRounds = 30) {
+  const status = await client.status().do();
+  let currentRound = Number(status?.['last-round'] ?? status?.lastRound);
+
+  if (!Number.isInteger(currentRound) || currentRound <= 0) {
+    throw new Error(`Unable to determine current round: ${JSON.stringify(status)}`);
+  }
+
+  const startRound = currentRound;
+
+  while (currentRound < startRound + timeoutRounds) {
+    const pending = await client.pendingTransactionInformation(txId).do();
+
+    // ✅ If confirmed → return
+    if (pending['confirmed-round'] && pending['confirmed-round'] > 0) {
+      return pending;
+    }
+
+    // ❌ If rejected → fail early
+    if (pending['pool-error'] && pending['pool-error'].length > 0) {
+      throw new Error(`Transaction rejected: ${pending['pool-error']}`);
+    }
+
+    currentRound++;
+    await client.statusAfterBlock(currentRound).do();
+  }
+
+  // 🔁 FINAL CHECK (this is what your version is missing)
+  const finalPending = await client.pendingTransactionInformation(txId).do();
+
+  if (finalPending['confirmed-round'] && finalPending['confirmed-round'] > 0) {
+    console.log("⚠️ Confirmed after timeout window");
+    return finalPending;
+  }
+
+  throw new Error(`Transaction not confirmed in ${timeoutRounds} rounds: ${txId}`);
+}
+
+function toStrictBytes32(hexHash) {
+  if (typeof hexHash !== 'string' || !/^[0-9a-fA-F]{64}$/.test(hexHash)) {
+    throw new Error('Invalid proof hash: expected 64 hex characters');
+  }
+  const buf = Buffer.from(hexHash, 'hex');
+  if (buf.length !== 32) {
+    throw new Error('Invalid proof hash: expected 32 bytes');
+  }
+  return buf;
+}
+
+function parseClaimContext(claimData) {
+  const raw = claimData?.context;
+  if (!raw) return {};
+  if (typeof raw === 'string') {
+    try {
+      return JSON.parse(raw);
+    } catch {
+      return {};
+    }
+  }
+  if (typeof raw === 'object') {
+    return raw;
+  }
+  return {};
+}
+
+async function assertUserOptedIn(algodClient, address, appId) {
+  try {
+    await algodClient.accountApplicationInformation(address, appId).do();
+  } catch (error) {
+    const message = error?.message || '';
+    if (message.includes('account application info not found')) {
+      throw new Error('User must opt in to the app before verification');
+    }
+    throw error;
+  }
+}
+
+async function callVerifyIncomeOnChain({
+  walletAddress,
+  tier,
+  creditLimit,
+  timestamp,
+  proofHashHex,
+  riderCount,
+  riderRating,
+  platform,
+}) {
+  const algodServer = requireEnv('ALGOD_SERVER', 'TESTNET_ALGOD_SERVER');
+  const algodToken = process.env.ALGOD_TOKEN || process.env.TESTNET_ALGOD_TOKEN || '';
+  const verifierMnemonic = requireEnv('VERIFIER_MNEMONIC', 'DEPLOYER_MNEMONIC');
+  const appId = loadAppId();
+  const method = getVerifyIncomeMethod();
+
+  const algodClient = new algosdk.Algodv2(algodToken, algodServer, '');
+  const verifierSk = algosdk.mnemonicToSecretKey(verifierMnemonic);
+
+  await assertUserOptedIn(algodClient, walletAddress, appId);
+
+  const atc = new algosdk.AtomicTransactionComposer();
+  const suggestedParams = await algodClient.getTransactionParams().do();
+  const proofHashBytes = toStrictBytes32(proofHashHex);
+
+  atc.addMethodCall({
+    appID: appId,
+    method,
+    sender: verifierSk.addr,
+    signer: algosdk.makeBasicAccountTransactionSigner(verifierSk),
+    suggestedParams,
+    methodArgs: [
+      walletAddress,
+      tier,
+      creditLimit,
+      timestamp,
+      proofHashBytes,
+      riderCount,
+      riderRating,
+      platform,
+    ],
+  });
+
+  const executeResult = await atc.execute(algodClient, 4);
+  const txId = executeResult.txIDs[0];
+  await algosdk.waitForConfirmation(algodClient, txId, 4);
+  return txId;
+}
 
 function generateDriverData() {
   const tripsCompleted = Math.floor(Math.random() * 2500) + 500;
@@ -238,6 +402,12 @@ app.post('/verify-proof', async (req, res) => {
         message: 'Missing proof' 
       });
     }
+    if (!walletAddress) {
+      return res.status(400).json({
+        success: false,
+        message: 'Missing walletAddress',
+      });
+    }
 
     // Generate proof hash
     const proofHash = crypto
@@ -267,6 +437,11 @@ app.post('/verify-proof', async (req, res) => {
     logProofStructure(proof);
 
     const claimData = proof?.claimData || {};
+    const context = parseClaimContext(claimData);
+
+    if (context.contextAddress && context.contextAddress !== walletAddress) {
+      throw new Error('Wallet mismatch with proof');
+    }
     
     // Extract UID
     const uberUid = extractUid(claimData);
@@ -285,6 +460,23 @@ app.post('/verify-proof', async (req, res) => {
     // Generate driver data
     const driverData = generateDriverData();
     const { tier, creditLimit, reason } = calculateCreditTier(driverData);
+    const riderCount = Number(driverData.tripsCompleted);
+    const riderRating = Math.round(Number(driverData.driverRating) * 100);
+    const proofTimestamp = Number(claimData?.timestampS);
+    const timestamp = Number.isFinite(proofTimestamp) && proofTimestamp > 0
+      ? Math.floor(proofTimestamp)
+      : Math.floor(Date.now() / 1000);
+
+    const txId = await callVerifyIncomeOnChain({
+      walletAddress,
+      tier,
+      creditLimit,
+      timestamp,
+      proofHashHex: proofHash,
+      riderCount,
+      riderRating,
+      platform: 'uber',
+    });
 
     console.log('\n╔══════════════════════════════════════════════════════════════════╗');
     console.log('║              💰 CREDIT DECISION                                 ║');
@@ -294,6 +486,7 @@ app.post('/verify-proof', async (req, res) => {
     console.log('║ MONTHLY EARNINGS: ₹' + driverData.monthlyEarnings.toLocaleString());
     console.log('║ TIER:', tier);
     console.log('║ CREDIT LIMIT: ₹' + creditLimit.toLocaleString());
+    console.log('║ TX ID:', txId);
     console.log('║ REASON:', reason);
     console.log('╚══════════════════════════════════════════════════════════════════╝\n');
 
@@ -301,18 +494,8 @@ app.post('/verify-proof', async (req, res) => {
       success: true,
       tier,
       creditLimit,
-      driverData,
-      creditReason: reason,
-      uberIdentity: {
-        uid: finalUid,
-        verified: !!uberUid,
-        email: email || null
-      },
-      proofHash: proofHash,
-      proofHashShort: proofHash.slice(0, 16) + '...',
-      provider: 'uber-uid-verified',
+      txId,
       message: `${reason}: ₹${driverData.monthlyEarnings.toLocaleString()}/month`,
-      demoNote: 'Driver earnings simulated for hackathon - real API in production'
     });
 
   } catch (error) {

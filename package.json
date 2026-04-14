@@ -1,6 +1,7 @@
 {
   "dependencies": {
     "@reclaimprotocol/js-sdk": "^4.15.2",
+    "algosdk": "^3.5.2",
     "cors": "^2.8.6",
     "express": "^5.2.1"
   }
