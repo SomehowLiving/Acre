@@ -1,0 +1,13 @@
+{
+  "appId": 758797725,
+  "sender": "7IMUXH2XMY5FOZDZE3DIZ54IZEK7OXOVXBVLPYAQW36TP4HEVBTIS3HHO4",
+  "txId": "6HNYIC2VSXXYDLIYIWQV5QAFPUMV57DE3YD6IKP74NSZTV7H3GCQ",
+  "confirmedRound": 62403967,
+  "dummyArgs": {
+    "tier": 2,
+    "credit_limit": 25000,
+    "rider_count": 321,
+    "rider_rating": 478,
+    "platform": "uber"
+  }
+}

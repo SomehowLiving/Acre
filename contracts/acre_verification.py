@@ -1,5 +1,6 @@
 from pyteal import *
 from pyteal.ast.router import Router
+from typing import Literal
 
 # ==========================================
 # STATE KEYS
@@ -19,6 +20,16 @@ LS_PROOF_HASH = Bytes("ph")         # bytes[32]: hash of reclaim proof
 LS_RIDER_COUNT = Bytes("rc")        # uint64: total uber rides
 LS_RIDER_RATING = Bytes("rr")       # uint64: rating * 100 (4.85 = 485)
 LS_PLATFORM = Bytes("p")            # bytes: "uber", "lyft", etc.
+
+
+class UserProfile(abi.NamedTuple):
+    verified: abi.Field[abi.Uint8]
+    tier: abi.Field[abi.Uint8]
+    credit_limit: abi.Field[abi.Uint64]
+    timestamp: abi.Field[abi.Uint64]
+    rider_count: abi.Field[abi.Uint64]
+    rider_rating: abi.Field[abi.Uint64]
+    platform: abi.Field[abi.String]
 
 # ==========================================
 # ROUTER SETUP
@@ -54,8 +65,7 @@ def update_verifier(new_verifier: abi.Address) -> Expr:
             comment="Only admin can update verifier"
         ),
         App.globalPut(GS_VERIFIER, new_verifier.get()),
-        Log(Concat(Bytes("VERIFIER_UPDATED:"), new_verifier.get())),
-        Int(1)
+        Log(Concat(Bytes("VERIFIER_UPDATED:"), new_verifier.get()))
     ])
 
 # ==========================================
@@ -112,9 +122,8 @@ def verify_income(
         Assert(user_opted_in, comment="User must opt in first"),
         
         # If updating, ensure timestamp is newer
-        If(is_update, 
-           Assert(is_fresh, comment="New timestamp must be newer"),
-           Int(1)
+        If(is_update).Then(
+            Assert(is_fresh, comment="New timestamp must be newer")
         ),
         
         # Store all verification data
@@ -145,17 +154,14 @@ def verify_income(
             Itob(rider_count.get()),
             Bytes("|platform|"),
             platform.get()
-        )),
-        
-        # Return success
-        Int(1)
+        ))
     ])
 
 # ==========================================
 # VIEW FUNCTIONS FOR LENDERS
 # ==========================================
 
-@router.method(read_only=True)
+@router.method
 def get_eligibility(user: abi.Address, *, output: abi.Uint64) -> Expr:
     """
     Returns credit limit for a user.
@@ -173,7 +179,7 @@ def get_eligibility(user: abi.Address, *, output: abi.Uint64) -> Expr:
         .Else(Int(0))
     )
 
-@router.method(read_only=True)
+@router.method
 def is_verified(user: abi.Address, *, output: abi.Uint8) -> Expr:
     """
     Check if user has verified income.
@@ -185,7 +191,7 @@ def is_verified(user: abi.Address, *, output: abi.Uint8) -> Expr:
         .Else(Int(0))
     )
 
-@router.method(read_only=True)
+@router.method
 def get_tier(user: abi.Address, *, output: abi.Uint8) -> Expr:
     """
     Get income tier (1, 2, or 3).
@@ -197,7 +203,7 @@ def get_tier(user: abi.Address, *, output: abi.Uint8) -> Expr:
         .Else(Int(0))
     )
 
-@router.method(read_only=True)
+@router.method
 def get_credit_limit(user: abi.Address, *, output: abi.Uint64) -> Expr:
     """
     Get credit limit in rupees.
@@ -215,62 +221,35 @@ def get_credit_limit(user: abi.Address, *, output: abi.Uint64) -> Expr:
         .Else(Int(0))
     )
 
-@router.method(read_only=True)
-def get_full_profile(
-    user: abi.Address, 
-    *, 
-    output: abi.Tuple7[
-        abi.Uint8,      # verified
-        abi.Uint8,      # tier
-        abi.Uint64,     # credit_limit
-        abi.Uint64,     # timestamp
-        abi.Uint64,     # rider_count
-        abi.Uint64,     # rider_rating
-        abi.String      # platform
-    ]
-) -> Expr:
+
+@router.method
+def get_full_profile(user: abi.Address, *, output: UserProfile) -> Expr:
     """
     Get all verification details at once.
     Returns tuple: (verified, tier, limit, timestamp, rides, rating, platform)
     """
     opted_in = App.optedIn(user.get(), Global.current_application_id())
-    
-    verified = If(opted_in).Then(
-        App.localGet(user.get(), LS_VERIFIED)
-    ).Else(Int(0))
-    
-    tier = If(opted_in).Then(
-        App.localGet(user.get(), LS_TIER)
-    ).Else(Int(0))
-    
-    limit = If(opted_in).Then(
-        App.localGet(user.get(), LS_CREDIT_LIMIT)
-    ).Else(Int(0))
-    
-    timestamp = If(opted_in).Then(
-        App.localGet(user.get(), LS_TIMESTAMP)
-    ).Else(Int(0))
-    
-    rides = If(opted_in).Then(
-        App.localGet(user.get(), LS_RIDER_COUNT)
-    ).Else(Int(0))
-    
-    rating = If(opted_in).Then(
-        App.localGet(user.get(), LS_RIDER_RATING)
-    ).Else(Int(0))
-    
-    platform = If(opted_in).Then(
-        App.localGet(user.get(), LS_PLATFORM)
-    ).Else(Bytes("none"))
-    
-    return output.set(
-        abi.make_tuple_type(abi.Tuple7[
-            abi.Uint8, abi.Uint8, abi.Uint64, abi.Uint64,
-            abi.Uint64, abi.Uint64, abi.String
-        ])(verified, tier, limit, timestamp, rides, rating, platform)
+
+    verified = abi.Uint8()
+    tier = abi.Uint8()
+    credit_limit = abi.Uint64()
+    timestamp = abi.Uint64()
+    rider_count = abi.Uint64()
+    rider_rating = abi.Uint64()
+    platform = abi.String()
+
+    return Seq(
+        verified.set(If(opted_in).Then(App.localGet(user.get(), LS_VERIFIED)).Else(Int(0))),
+        tier.set(If(opted_in).Then(App.localGet(user.get(), LS_TIER)).Else(Int(0))),
+        credit_limit.set(If(opted_in).Then(App.localGet(user.get(), LS_CREDIT_LIMIT)).Else(Int(0))),
+        timestamp.set(If(opted_in).Then(App.localGet(user.get(), LS_TIMESTAMP)).Else(Int(0))),
+        rider_count.set(If(opted_in).Then(App.localGet(user.get(), LS_RIDER_COUNT)).Else(Int(0))),
+        rider_rating.set(If(opted_in).Then(App.localGet(user.get(), LS_RIDER_RATING)).Else(Int(0))),
+        platform.set(If(opted_in).Then(App.localGet(user.get(), LS_PLATFORM)).Else(Bytes("none"))),
+        output.set(verified, tier, credit_limit, timestamp, rider_count, rider_rating, platform),
     )
 
-@router.method(read_only=True)
+@router.method
 def get_proof_hash(user: abi.Address, *, output: abi.StaticBytes[Literal[32]]) -> Expr:
     """
     Get the hash of the Reclaim proof used for verification.
@@ -279,24 +258,24 @@ def get_proof_hash(user: abi.Address, *, output: abi.StaticBytes[Literal[32]]) -
     return output.set(
         If(App.optedIn(user.get(), Global.current_application_id()))
         .Then(App.localGet(user.get(), LS_PROOF_HASH))
-        .Else(BytesZero())
+        .Else(BytesZero(Int(32)))
     )
 
 # ==========================================
 # UTILITY FUNCTIONS
 # ==========================================
 
-@router.method(read_only=True)
+@router.method
 def get_verifier(*, output: abi.Address) -> Expr:
     """Returns the current verifier address."""
     return output.set(App.globalGet(GS_VERIFIER))
 
-@router.method(read_only=True)
+@router.method
 def get_admin(*, output: abi.Address) -> Expr:
     """Returns the admin address."""
     return output.set(App.globalGet(GS_ADMIN))
 
-@router.method(read_only=True)
+@router.method
 def get_proof_count(*, output: abi.Uint64) -> Expr:
     """Returns total number of proofs stored."""
     return output.set(App.globalGet(GS_PROOF_COUNT))

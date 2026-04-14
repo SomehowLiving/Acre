@@ -1,0 +1,170 @@
+{
+  "name": "AcreVerification",
+  "methods": [
+    {
+      "name": "update_verifier",
+      "args": [
+        {
+          "type": "address",
+          "name": "new_verifier"
+        }
+      ],
+      "returns": {
+        "type": "void"
+      },
+      "desc": "Change the backend verifier address.\nOnly admin can call this."
+    },
+    {
+      "name": "verify_income",
+      "args": [
+        {
+          "type": "address",
+          "name": "user_wallet",
+          "desc": "The gig worker's Algorand address"
+        },
+        {
+          "type": "uint8",
+          "name": "tier",
+          "desc": "Income tier (1=<25k limit, 2=25-50k, 3=>50k)"
+        },
+        {
+          "type": "uint64",
+          "name": "credit_limit",
+          "desc": "Maximum loan amount in rupees"
+        },
+        {
+          "type": "uint64",
+          "name": "timestamp",
+          "desc": "Unix timestamp of verification"
+        },
+        {
+          "type": "byte[32]",
+          "name": "proof_hash",
+          "desc": "SHA256 hash of Reclaim proof (prevents replay)"
+        },
+        {
+          "type": "uint64",
+          "name": "rider_count",
+          "desc": "Total Uber rides (activity signal)"
+        },
+        {
+          "type": "uint64",
+          "name": "rider_rating",
+          "desc": "Rating * 100 (485 = 4.85 stars)"
+        },
+        {
+          "type": "string",
+          "name": "platform",
+          "desc": "\"uber\", \"lyft\", etc."
+        }
+      ],
+      "returns": {
+        "type": "void"
+      },
+      "desc": "Store income verification data from Reclaim proof."
+    },
+    {
+      "name": "get_eligibility",
+      "args": [
+        {
+          "type": "address",
+          "name": "user"
+        }
+      ],
+      "returns": {
+        "type": "uint64"
+      },
+      "desc": "Returns credit limit for a user.\nReturns 0 if not verified."
+    },
+    {
+      "name": "is_verified",
+      "args": [
+        {
+          "type": "address",
+          "name": "user"
+        }
+      ],
+      "returns": {
+        "type": "uint8"
+      },
+      "desc": "Check if user has verified income.\nReturns: 1 = verified, 0 = not verified"
+    },
+    {
+      "name": "get_tier",
+      "args": [
+        {
+          "type": "address",
+          "name": "user"
+        }
+      ],
+      "returns": {
+        "type": "uint8"
+      },
+      "desc": "Get income tier (1, 2, or 3).\nReturns 0 if not verified."
+    },
+    {
+      "name": "get_credit_limit",
+      "args": [
+        {
+          "type": "address",
+          "name": "user"
+        }
+      ],
+      "returns": {
+        "type": "uint64"
+      },
+      "desc": "Get credit limit in rupees.\nAlias for get_eligibility."
+    },
+    {
+      "name": "get_full_profile",
+      "args": [
+        {
+          "type": "address",
+          "name": "user"
+        }
+      ],
+      "returns": {
+        "type": "(uint8,uint8,uint64,uint64,uint64,uint64,string)"
+      },
+      "desc": "Get all verification details at once.\nReturns tuple: (verified, tier, limit, timestamp, rides, rating, platform)"
+    },
+    {
+      "name": "get_proof_hash",
+      "args": [
+        {
+          "type": "address",
+          "name": "user"
+        }
+      ],
+      "returns": {
+        "type": "byte[32]"
+      },
+      "desc": "Get the hash of the Reclaim proof used for verification.\nReturns empty bytes if not verified."
+    },
+    {
+      "name": "get_verifier",
+      "args": [],
+      "returns": {
+        "type": "address"
+      },
+      "desc": "Returns the current verifier address."
+    },
+    {
+      "name": "get_admin",
+      "args": [],
+      "returns": {
+        "type": "address"
+      },
+      "desc": "Returns the admin address."
+    },
+    {
+      "name": "get_proof_count",
+      "args": [],
+      "returns": {
+        "type": "uint64"
+      },
+      "desc": "Returns total number of proofs stored."
+    }
+  ],
+  "networks": {}
+}

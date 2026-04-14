@@ -1,0 +1,818 @@
+#pragma version 8
+intcblock 0 1 256 32
+bytecblock 0x 0x151f7c75 0x76 0x7665726966696572 0x70636e74 0x7473 0x6c 0x00 0x61646d696e 0x74 0x7068 0x7263 0x7272 0x70
+txn NumAppArgs
+intc_0 // 0
+==
+bnz main_l24
+txna ApplicationArgs 0
+pushbytes 0x382b2a7a // "update_verifier(address)void"
+==
+bnz main_l23
+txna ApplicationArgs 0
+pushbytes 0x51b95177 // "verify_income(address,uint8,uint64,uint64,byte[32],uint64,uint64,string)void"
+==
+bnz main_l22
+txna ApplicationArgs 0
+pushbytes 0xecd5e886 // "get_eligibility(address)uint64"
+==
+bnz main_l21
+txna ApplicationArgs 0
+pushbytes 0xab3472b8 // "is_verified(address)uint8"
+==
+bnz main_l20
+txna ApplicationArgs 0
+pushbytes 0x655d018e // "get_tier(address)uint8"
+==
+bnz main_l19
+txna ApplicationArgs 0
+pushbytes 0x4770e4b8 // "get_credit_limit(address)uint64"
+==
+bnz main_l18
+txna ApplicationArgs 0
+pushbytes 0xbe0f75af // "get_full_profile(address)(uint8,uint8,uint64,uint64,uint64,uint64,string)"
+==
+bnz main_l17
+txna ApplicationArgs 0
+pushbytes 0xa2b7d358 // "get_proof_hash(address)byte[32]"
+==
+bnz main_l16
+txna ApplicationArgs 0
+pushbytes 0x9f7054f0 // "get_verifier()address"
+==
+bnz main_l15
+txna ApplicationArgs 0
+pushbytes 0x346b3dbc // "get_admin()address"
+==
+bnz main_l14
+txna ApplicationArgs 0
+pushbytes 0x71f0cfbb // "get_proof_count()uint64"
+==
+bnz main_l13
+err
+main_l13:
+txn OnCompletion
+intc_0 // NoOp
+==
+txn ApplicationID
+intc_0 // 0
+!=
+&&
+assert
+callsub getproofcountcaster_21
+intc_1 // 1
+return
+main_l14:
+txn OnCompletion
+intc_0 // NoOp
+==
+txn ApplicationID
+intc_0 // 0
+!=
+&&
+assert
+callsub getadmincaster_20
+intc_1 // 1
+return
+main_l15:
+txn OnCompletion
+intc_0 // NoOp
+==
+txn ApplicationID
+intc_0 // 0
+!=
+&&
+assert
+callsub getverifiercaster_19
+intc_1 // 1
+return
+main_l16:
+txn OnCompletion
+intc_0 // NoOp
+==
+txn ApplicationID
+intc_0 // 0
+!=
+&&
+assert
+callsub getproofhashcaster_18
+intc_1 // 1
+return
+main_l17:
+txn OnCompletion
+intc_0 // NoOp
+==
+txn ApplicationID
+intc_0 // 0
+!=
+&&
+assert
+callsub getfullprofilecaster_17
+intc_1 // 1
+return
+main_l18:
+txn OnCompletion
+intc_0 // NoOp
+==
+txn ApplicationID
+intc_0 // 0
+!=
+&&
+assert
+callsub getcreditlimitcaster_16
+intc_1 // 1
+return
+main_l19:
+txn OnCompletion
+intc_0 // NoOp
+==
+txn ApplicationID
+intc_0 // 0
+!=
+&&
+assert
+callsub gettiercaster_15
+intc_1 // 1
+return
+main_l20:
+txn OnCompletion
+intc_0 // NoOp
+==
+txn ApplicationID
+intc_0 // 0
+!=
+&&
+assert
+callsub isverifiedcaster_14
+intc_1 // 1
+return
+main_l21:
+txn OnCompletion
+intc_0 // NoOp
+==
+txn ApplicationID
+intc_0 // 0
+!=
+&&
+assert
+callsub geteligibilitycaster_13
+intc_1 // 1
+return
+main_l22:
+txn OnCompletion
+intc_0 // NoOp
+==
+txn ApplicationID
+intc_0 // 0
+!=
+&&
+assert
+callsub verifyincomecaster_12
+intc_1 // 1
+return
+main_l23:
+txn OnCompletion
+intc_0 // NoOp
+==
+txn ApplicationID
+intc_0 // 0
+!=
+&&
+assert
+callsub updateverifiercaster_11
+intc_1 // 1
+return
+main_l24:
+txn OnCompletion
+intc_0 // NoOp
+==
+bnz main_l28
+txn OnCompletion
+intc_1 // OptIn
+==
+bnz main_l27
+err
+main_l27:
+intc_1 // 1
+return
+main_l28:
+txn ApplicationID
+intc_0 // 0
+==
+assert
+bytec 8 // "admin"
+txn Sender
+app_global_put
+bytec_3 // "verifier"
+txn Sender
+app_global_put
+bytec 4 // "pcnt"
+intc_0 // 0
+app_global_put
+intc_1 // 1
+return
+
+// update_verifier
+updateverifier_0:
+proto 1 0
+txn Sender
+bytec 8 // "admin"
+app_global_get
+==
+// Only admin can update verifier
+assert
+bytec_3 // "verifier"
+frame_dig -1
+app_global_put
+pushbytes 0x56455249464945525f555044415445443a // "VERIFIER_UPDATED:"
+frame_dig -1
+concat
+log
+retsub
+
+// verify_income
+verifyincome_1:
+proto 8 0
+txn Sender
+bytec_3 // "verifier"
+app_global_get
+==
+// Only verifier can submit proofs
+assert
+frame_dig -8
+global CurrentApplicationID
+app_opted_in
+// User must opt in first
+assert
+frame_dig -8
+bytec 5 // "ts"
+app_local_get
+intc_0 // 0
+>
+bz verifyincome_1_l2
+frame_dig -5
+frame_dig -8
+bytec 5 // "ts"
+app_local_get
+>
+// New timestamp must be newer
+assert
+verifyincome_1_l2:
+frame_dig -8
+bytec_2 // "v"
+intc_1 // 1
+app_local_put
+frame_dig -8
+bytec 9 // "t"
+frame_dig -7
+app_local_put
+frame_dig -8
+bytec 6 // "l"
+frame_dig -6
+app_local_put
+frame_dig -8
+bytec 5 // "ts"
+frame_dig -5
+app_local_put
+frame_dig -8
+bytec 10 // "ph"
+frame_dig -4
+app_local_put
+frame_dig -8
+bytec 11 // "rc"
+frame_dig -3
+app_local_put
+frame_dig -8
+bytec 12 // "rr"
+frame_dig -2
+app_local_put
+frame_dig -8
+bytec 13 // "p"
+frame_dig -1
+extract 2 0
+app_local_put
+bytec 4 // "pcnt"
+bytec 4 // "pcnt"
+app_global_get
+intc_1 // 1
++
+app_global_put
+pushbytes 0x56455249464945447c // "VERIFIED|"
+frame_dig -8
+concat
+pushbytes 0x7c746965727c // "|tier|"
+concat
+frame_dig -7
+itob
+concat
+pushbytes 0x7c6c696d69747c // "|limit|"
+concat
+frame_dig -6
+itob
+concat
+pushbytes 0x7c72696465737c // "|rides|"
+concat
+frame_dig -3
+itob
+concat
+pushbytes 0x7c706c6174666f726d7c // "|platform|"
+concat
+frame_dig -1
+extract 2 0
+concat
+log
+retsub
+
+// get_eligibility
+geteligibility_2:
+proto 1 1
+intc_0 // 0
+frame_dig -1
+global CurrentApplicationID
+app_opted_in
+frame_dig -1
+bytec_2 // "v"
+app_local_get
+intc_1 // 1
+==
+&&
+bnz geteligibility_2_l2
+intc_0 // 0
+b geteligibility_2_l3
+geteligibility_2_l2:
+frame_dig -1
+bytec 6 // "l"
+app_local_get
+geteligibility_2_l3:
+frame_bury 0
+retsub
+
+// is_verified
+isverified_3:
+proto 1 1
+intc_0 // 0
+frame_dig -1
+global CurrentApplicationID
+app_opted_in
+bnz isverified_3_l2
+intc_0 // 0
+b isverified_3_l3
+isverified_3_l2:
+frame_dig -1
+bytec_2 // "v"
+app_local_get
+isverified_3_l3:
+frame_bury 0
+frame_dig 0
+intc_2 // 256
+<
+assert
+retsub
+
+// get_tier
+gettier_4:
+proto 1 1
+intc_0 // 0
+frame_dig -1
+global CurrentApplicationID
+app_opted_in
+bnz gettier_4_l2
+intc_0 // 0
+b gettier_4_l3
+gettier_4_l2:
+frame_dig -1
+bytec 9 // "t"
+app_local_get
+gettier_4_l3:
+frame_bury 0
+frame_dig 0
+intc_2 // 256
+<
+assert
+retsub
+
+// get_credit_limit
+getcreditlimit_5:
+proto 1 1
+intc_0 // 0
+frame_dig -1
+global CurrentApplicationID
+app_opted_in
+frame_dig -1
+bytec_2 // "v"
+app_local_get
+intc_1 // 1
+==
+&&
+bnz getcreditlimit_5_l2
+intc_0 // 0
+b getcreditlimit_5_l3
+getcreditlimit_5_l2:
+frame_dig -1
+bytec 6 // "l"
+app_local_get
+getcreditlimit_5_l3:
+frame_bury 0
+retsub
+
+// get_full_profile
+getfullprofile_6:
+proto 1 1
+bytec_0 // ""
+intc_0 // 0
+dupn 5
+bytec_0 // ""
+intc_0 // 0
+dup
+bytec_0 // ""
+dup
+frame_dig -1
+global CurrentApplicationID
+app_opted_in
+bnz getfullprofile_6_l20
+intc_0 // 0
+getfullprofile_6_l2:
+frame_bury 1
+frame_dig 1
+intc_2 // 256
+<
+assert
+frame_dig -1
+global CurrentApplicationID
+app_opted_in
+bnz getfullprofile_6_l19
+intc_0 // 0
+getfullprofile_6_l4:
+frame_bury 2
+frame_dig 2
+intc_2 // 256
+<
+assert
+frame_dig -1
+global CurrentApplicationID
+app_opted_in
+bnz getfullprofile_6_l18
+intc_0 // 0
+getfullprofile_6_l6:
+frame_bury 3
+frame_dig -1
+global CurrentApplicationID
+app_opted_in
+bnz getfullprofile_6_l17
+intc_0 // 0
+getfullprofile_6_l8:
+frame_bury 4
+frame_dig -1
+global CurrentApplicationID
+app_opted_in
+bnz getfullprofile_6_l16
+intc_0 // 0
+getfullprofile_6_l10:
+frame_bury 5
+frame_dig -1
+global CurrentApplicationID
+app_opted_in
+bnz getfullprofile_6_l15
+intc_0 // 0
+getfullprofile_6_l12:
+frame_bury 6
+frame_dig -1
+global CurrentApplicationID
+app_opted_in
+bnz getfullprofile_6_l14
+pushbytes 0x6e6f6e65 // "none"
+b getfullprofile_6_l21
+getfullprofile_6_l14:
+frame_dig -1
+bytec 13 // "p"
+app_local_get
+b getfullprofile_6_l21
+getfullprofile_6_l15:
+frame_dig -1
+bytec 12 // "rr"
+app_local_get
+b getfullprofile_6_l12
+getfullprofile_6_l16:
+frame_dig -1
+bytec 11 // "rc"
+app_local_get
+b getfullprofile_6_l10
+getfullprofile_6_l17:
+frame_dig -1
+bytec 5 // "ts"
+app_local_get
+b getfullprofile_6_l8
+getfullprofile_6_l18:
+frame_dig -1
+bytec 6 // "l"
+app_local_get
+b getfullprofile_6_l6
+getfullprofile_6_l19:
+frame_dig -1
+bytec 9 // "t"
+app_local_get
+b getfullprofile_6_l4
+getfullprofile_6_l20:
+frame_dig -1
+bytec_2 // "v"
+app_local_get
+b getfullprofile_6_l2
+getfullprofile_6_l21:
+frame_bury 7
+frame_dig 7
+len
+itob
+extract 6 0
+frame_dig 7
+concat
+frame_bury 7
+bytec 7 // 0x00
+intc_0 // 0
+frame_dig 1
+setbyte
+bytec 7 // 0x00
+intc_0 // 0
+frame_dig 2
+setbyte
+concat
+frame_dig 3
+itob
+concat
+frame_dig 4
+itob
+concat
+frame_dig 5
+itob
+concat
+frame_dig 6
+itob
+concat
+frame_dig 7
+frame_bury 11
+frame_dig 11
+frame_bury 10
+pushint 36 // 36
+frame_bury 8
+frame_dig 8
+itob
+extract 6 0
+concat
+frame_dig 10
+concat
+frame_bury 0
+retsub
+
+// get_proof_hash
+getproofhash_7:
+proto 1 1
+bytec_0 // ""
+frame_dig -1
+global CurrentApplicationID
+app_opted_in
+bnz getproofhash_7_l2
+intc_3 // 32
+bzero
+b getproofhash_7_l3
+getproofhash_7_l2:
+frame_dig -1
+bytec 10 // "ph"
+app_local_get
+getproofhash_7_l3:
+frame_bury 0
+intc_3 // 32
+frame_dig 0
+len
+==
+assert
+retsub
+
+// get_verifier
+getverifier_8:
+proto 0 1
+bytec_0 // ""
+bytec_3 // "verifier"
+app_global_get
+frame_bury 0
+frame_dig 0
+len
+intc_3 // 32
+==
+assert
+retsub
+
+// get_admin
+getadmin_9:
+proto 0 1
+bytec_0 // ""
+bytec 8 // "admin"
+app_global_get
+frame_bury 0
+frame_dig 0
+len
+intc_3 // 32
+==
+assert
+retsub
+
+// get_proof_count
+getproofcount_10:
+proto 0 1
+intc_0 // 0
+bytec 4 // "pcnt"
+app_global_get
+frame_bury 0
+retsub
+
+// update_verifier_caster
+updateverifiercaster_11:
+proto 0 0
+bytec_0 // ""
+txna ApplicationArgs 1
+frame_bury 0
+frame_dig 0
+callsub updateverifier_0
+retsub
+
+// verify_income_caster
+verifyincomecaster_12:
+proto 0 0
+bytec_0 // ""
+intc_0 // 0
+dupn 2
+bytec_0 // ""
+intc_0 // 0
+dup
+bytec_0 // ""
+txna ApplicationArgs 1
+frame_bury 0
+txna ApplicationArgs 2
+intc_0 // 0
+getbyte
+frame_bury 1
+txna ApplicationArgs 3
+btoi
+frame_bury 2
+txna ApplicationArgs 4
+btoi
+frame_bury 3
+txna ApplicationArgs 5
+frame_bury 4
+txna ApplicationArgs 6
+btoi
+frame_bury 5
+txna ApplicationArgs 7
+btoi
+frame_bury 6
+txna ApplicationArgs 8
+frame_bury 7
+frame_dig 0
+frame_dig 1
+frame_dig 2
+frame_dig 3
+frame_dig 4
+frame_dig 5
+frame_dig 6
+frame_dig 7
+callsub verifyincome_1
+retsub
+
+// get_eligibility_caster
+geteligibilitycaster_13:
+proto 0 0
+intc_0 // 0
+bytec_0 // ""
+txna ApplicationArgs 1
+frame_bury 1
+frame_dig 1
+callsub geteligibility_2
+frame_bury 0
+bytec_1 // 0x151f7c75
+frame_dig 0
+itob
+concat
+log
+retsub
+
+// is_verified_caster
+isverifiedcaster_14:
+proto 0 0
+intc_0 // 0
+bytec_0 // ""
+txna ApplicationArgs 1
+frame_bury 1
+frame_dig 1
+callsub isverified_3
+frame_bury 0
+bytec_1 // 0x151f7c75
+bytec 7 // 0x00
+intc_0 // 0
+frame_dig 0
+setbyte
+concat
+log
+retsub
+
+// get_tier_caster
+gettiercaster_15:
+proto 0 0
+intc_0 // 0
+bytec_0 // ""
+txna ApplicationArgs 1
+frame_bury 1
+frame_dig 1
+callsub gettier_4
+frame_bury 0
+bytec_1 // 0x151f7c75
+bytec 7 // 0x00
+intc_0 // 0
+frame_dig 0
+setbyte
+concat
+log
+retsub
+
+// get_credit_limit_caster
+getcreditlimitcaster_16:
+proto 0 0
+intc_0 // 0
+bytec_0 // ""
+txna ApplicationArgs 1
+frame_bury 1
+frame_dig 1
+callsub getcreditlimit_5
+frame_bury 0
+bytec_1 // 0x151f7c75
+frame_dig 0
+itob
+concat
+log
+retsub
+
+// get_full_profile_caster
+getfullprofilecaster_17:
+proto 0 0
+bytec_0 // ""
+dup
+txna ApplicationArgs 1
+frame_bury 1
+frame_dig 1
+callsub getfullprofile_6
+frame_bury 0
+bytec_1 // 0x151f7c75
+frame_dig 0
+concat
+log
+retsub
+
+// get_proof_hash_caster
+getproofhashcaster_18:
+proto 0 0
+bytec_0 // ""
+dup
+txna ApplicationArgs 1
+frame_bury 1
+frame_dig 1
+callsub getproofhash_7
+frame_bury 0
+bytec_1 // 0x151f7c75
+frame_dig 0
+concat
+log
+retsub
+
+// get_verifier_caster
+getverifiercaster_19:
+proto 0 0
+bytec_0 // ""
+callsub getverifier_8
+frame_bury 0
+bytec_1 // 0x151f7c75
+frame_dig 0
+concat
+log
+retsub
+
+// get_admin_caster
+getadmincaster_20:
+proto 0 0
+bytec_0 // ""
+callsub getadmin_9
+frame_bury 0
+bytec_1 // 0x151f7c75
+frame_dig 0
+concat
+log
+retsub
+
+// get_proof_count_caster
+getproofcountcaster_21:
+proto 0 0
+intc_0 // 0
+callsub getproofcount_10
+frame_bury 0
+bytec_1 // 0x151f7c75
+frame_dig 0
+itob
+concat
+log
+retsub
