@@ -2,10 +2,15 @@ import { useMemo, useState } from 'react'
 import { QRCodeSVG } from 'qrcode.react'
 import './App.css'
 
+type VerificationResult = {
+  income_band: string
+  provider: string
+}
+
 function App() {
   const [status, setStatus] = useState('idle')
   const [requestUrl, setRequestUrl] = useState('')
-  const [result, setResult] = useState(null)
+  const [result, setResult] = useState<VerificationResult | null>(null)
   const [error, setError] = useState('')
 
   // ✅ Vite env variables
@@ -59,8 +64,7 @@ function App() {
         PROVIDER_ID
       )
 
-      const { requestUrl: verificationUrl } =
-        await reclaim.createVerificationRequest()
+      const verificationUrl = await reclaim.getRequestUrl()
 
       setRequestUrl(verificationUrl)
       setStatus('waiting')
@@ -95,17 +99,17 @@ function App() {
             setRequestUrl('')
           } catch (err) {
             setStatus('error')
-            setError(err.message)
+            setError(err instanceof Error ? err.message : 'Backend verification failed')
           }
         },
         onError: (err) => {
           setStatus('error')
-          setError(err?.message || 'Session failed')
+          setError(err instanceof Error ? err.message : 'Session failed')
         },
       })
     } catch (err) {
       setStatus('error')
-      setError(err?.message || 'Failed to start')
+      setError(err instanceof Error ? err.message : 'Failed to start')
     }
   }
 

@@ -6,11 +6,24 @@ const Reclaim = require('@reclaimprotocol/js-sdk');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
+const allowedOrigins = (
+  process.env.CORS_ORIGINS ||
+  'http://localhost:3000,http://localhost:5173,http://127.0.0.1:5173'
+)
+  .split(',')
+  .map((origin) => origin.trim())
+  .filter(Boolean);
 
 app.use(
   cors({
-    origin: 'http://localhost:3000',
-    methods: ['POST'],
+    origin(origin, callback) {
+      // Allow non-browser requests (no Origin header), and configured browser origins.
+      if (!origin || allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+      return callback(new Error(`Not allowed by CORS: ${origin}`));
+    },
+    methods: ['POST', 'OPTIONS'],
   })
 );
 app.use(express.json({ limit: '2mb' }));
