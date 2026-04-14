@@ -175,6 +175,7 @@ async function callVerifyIncomeOnChain({
     sender: verifierSk.addr,
     signer: algosdk.makeBasicAccountTransactionSigner(verifierSk),
     suggestedParams,
+    appAccounts: [walletAddress],
     methodArgs: [
       walletAddress,
       tier,

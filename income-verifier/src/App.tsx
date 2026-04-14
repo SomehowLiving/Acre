@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { PeraWalletConnect } from '@perawallet/connect'
 import { QRCodeSVG } from 'qrcode.react'
+import algosdk from 'algosdk'
 import './App.css'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -22,6 +23,7 @@ type VerifyResponse = {
 }
 
 type ProofPayload = unknown
+type WalletTxnSigner = (txns: algosdk.Transaction[]) => Promise<Uint8Array[]>
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -101,15 +103,40 @@ async function verifyWithBackend(
   return parsed
 }
 
-// ─── Sub-components ──────────────────────────────────────────────────────────
+function createAlgodClient(server: string, token: string): algosdk.Algodv2 {
+  return new algosdk.Algodv2(token, server, '')
+}
 
-function StatCard({ label, value }: { label: string; value: string | number }) {
-  return (
-    <div style={styles.statCard}>
-      <span style={styles.statLabel}>{label}</span>
-      <span style={styles.statValue}>{value}</span>
-    </div>
-  )
+async function isUserOptedIntoApp(
+  algodClient: algosdk.Algodv2,
+  walletAddress: string,
+  appId: number
+): Promise<boolean> {
+  try {
+    await algodClient.accountApplicationInformation(walletAddress, appId).do()
+    return true
+  } catch {
+    return false
+  }
+}
+
+async function optInToApp(
+  algodClient: algosdk.Algodv2,
+  walletAddress: string,
+  appId: number,
+  signTransactions: WalletTxnSigner
+): Promise<string> {
+  const suggestedParams = await algodClient.getTransactionParams().do()
+  const optInTxn = algosdk.makeApplicationOptInTxnFromObject({
+    sender: walletAddress,
+    appIndex: appId,
+    suggestedParams,
+  })
+
+  const signed = await signTransactions([optInTxn])
+  const sendResult = await algodClient.sendRawTransaction(signed[0]).do()
+  await algosdk.waitForConfirmation(algodClient, sendResult.txid, 4)
+  return sendResult.txid
 }
 
 // ─── Main App ────────────────────────────────────────────────────────────────
@@ -126,6 +153,9 @@ function App() {
   const APP_SECRET = import.meta.env.VITE_RECLAIM_APP_SECRET as string | undefined
   const PROVIDER_ID = import.meta.env.VITE_RECLAIM_PROVIDER_ID as string | undefined
   const BACKEND_VERIFY_URL = import.meta.env.VITE_BACKEND_VERIFY_URL as string | undefined
+  const ALGORAND_APP_ID = import.meta.env.VITE_ALGORAND_APP_ID as string | undefined
+  const ALGOD_SERVER = (import.meta.env.VITE_ALGOD_SERVER as string | undefined) || 'https://testnet-api.algonode.cloud'
+  const ALGOD_TOKEN = (import.meta.env.VITE_ALGOD_TOKEN as string | undefined) || ''
 
   // Reconnect on mount
   useEffect(() => {
@@ -165,7 +195,7 @@ function App() {
 
   const handleVerify = useCallback(async () => {
     if (!account) { setError('Connect your wallet first'); return }
-    if (!APP_ID || !APP_SECRET || !PROVIDER_ID || !BACKEND_VERIFY_URL) {
+    if (!APP_ID || !APP_SECRET || !PROVIDER_ID || !BACKEND_VERIFY_URL || !ALGORAND_APP_ID) {
       setError('Missing required environment configuration')
       return
     }
@@ -176,6 +206,22 @@ function App() {
     setStep('proof')
 
     try {
+      const appId = Number(ALGORAND_APP_ID)
+      if (!Number.isInteger(appId) || appId <= 0) {
+        throw new Error('Invalid VITE_ALGORAND_APP_ID')
+      }
+
+      const algodClient = createAlgodClient(ALGOD_SERVER, ALGOD_TOKEN)
+      const signTransactions: WalletTxnSigner = async (txns) => {
+        const txGroup = txns.map((txn) => ({ txn }))
+        return peraWallet.signTransaction([txGroup])
+      }
+
+      const optedIn = await isUserOptedIntoApp(algodClient, account, appId)
+      if (!optedIn) {
+        await optInToApp(algodClient, account, appId, signTransactions)
+      }
+
       const proof = await generateProof(APP_ID, APP_SECRET, PROVIDER_ID, account, (url) => {
         setRequestUrl(url)
       })
@@ -190,7 +236,7 @@ function App() {
     } finally {
       setLoading(false)
     }
-  }, [APP_ID, APP_SECRET, PROVIDER_ID, BACKEND_VERIFY_URL, account])
+  }, [APP_ID, APP_SECRET, PROVIDER_ID, BACKEND_VERIFY_URL, ALGORAND_APP_ID, ALGOD_SERVER, ALGOD_TOKEN, account])
 
   const txExplorerUrl = useMemo(() => {
     if (!result?.txId) return ''
@@ -205,202 +251,7 @@ function App() {
   }, [step, requestUrl])
 
   return (
-    <>
-      <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600&family=DM+Mono:wght@400;500&display=swap');
-
-        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
-        body {
-          background: #f7f6f2;
-          min-height: 100vh;
-        }
-
-        .acre-root {
-          font-family: 'Sora', system-ui, sans-serif;
-          max-width: 520px;
-          margin: 56px auto 80px;
-          padding: 0 20px;
-        }
-
-        .acre-card {
-          background: #ffffff;
-          border: 1px solid #e8e5de;
-          border-radius: 20px;
-          padding: 28px;
-          margin-bottom: 16px;
-        }
-
-        .acre-btn-primary {
-          width: 100%;
-          padding: 15px 20px;
-          border-radius: 12px;
-          border: none;
-          background: #111827;
-          color: #fff;
-          font-family: 'Sora', system-ui, sans-serif;
-          font-size: 15px;
-          font-weight: 600;
-          cursor: pointer;
-          transition: background 0.15s, opacity 0.15s;
-          letter-spacing: -0.01em;
-        }
-        .acre-btn-primary:hover:not(:disabled) { background: #1f2937; }
-        .acre-btn-primary:disabled { opacity: 0.45; cursor: not-allowed; }
-
-        .acre-btn-ghost {
-          padding: 9px 16px;
-          border-radius: 8px;
-          border: 1px solid #e0ddd5;
-          background: transparent;
-          color: #374151;
-          font-family: 'Sora', system-ui, sans-serif;
-          font-size: 13px;
-          font-weight: 500;
-          cursor: pointer;
-          transition: background 0.12s;
-          white-space: nowrap;
-        }
-        .acre-btn-ghost:hover { background: #f3f2ee; }
-
-        .acre-btn-connect {
-          padding: 9px 16px;
-          border-radius: 8px;
-          border: none;
-          background: #111827;
-          color: #fff;
-          font-family: 'Sora', system-ui, sans-serif;
-          font-size: 13px;
-          font-weight: 600;
-          cursor: pointer;
-          transition: background 0.12s;
-          white-space: nowrap;
-        }
-        .acre-btn-connect:hover { background: #1f2937; }
-
-        .acre-stat-grid {
-          display: grid;
-          grid-template-columns: 1fr 1fr;
-          gap: 10px;
-        }
-
-        .acre-stat {
-          background: #f7f6f2;
-          border-radius: 12px;
-          padding: 14px 16px;
-        }
-
-        .acre-tier-card {
-          background: #111827;
-          color: #fff;
-          border-radius: 16px;
-          padding: 24px;
-          text-align: center;
-          margin-top: 12px;
-        }
-
-        .acre-pulse {
-          display: inline-block;
-          width: 8px;
-          height: 8px;
-          border-radius: 50%;
-          background: #10b981;
-          animation: pulse 1.4s ease-in-out infinite;
-          margin-right: 8px;
-          vertical-align: middle;
-        }
-
-        @keyframes pulse {
-          0%, 100% { opacity: 1; transform: scale(1); }
-          50% { opacity: 0.4; transform: scale(0.85); }
-        }
-
-        .acre-mono {
-          font-family: 'DM Mono', monospace;
-          font-size: 12px;
-          color: #6b7280;
-          word-break: break-all;
-        }
-
-        .acre-badge {
-          display: inline-block;
-          padding: 3px 10px;
-          border-radius: 20px;
-          font-size: 12px;
-          font-weight: 500;
-        }
-
-        .acre-badge-tier {
-          background: rgba(255,255,255,0.12);
-          color: rgba(255,255,255,0.8);
-          border: 1px solid rgba(255,255,255,0.15);
-        }
-
-        .acre-divider {
-          border: none;
-          border-top: 1px solid #f0ede5;
-          margin: 20px 0;
-        }
-
-        .acre-error {
-          border: 1px solid #fecaca;
-          background: #fef2f2;
-          color: #991b1b;
-          border-radius: 12px;
-          padding: 14px 16px;
-          font-size: 14px;
-          margin-top: 12px;
-        }
-
-        .acre-status-row {
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          gap: 8px;
-          font-size: 14px;
-          color: #6b7280;
-          margin-top: 16px;
-          min-height: 22px;
-        }
-
-        .acre-qr-wrap {
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          padding: 28px 20px;
-          background: #fff;
-          border: 1px solid #e8e5de;
-          border-radius: 20px;
-          margin-top: 16px;
-          gap: 16px;
-        }
-
-        .acre-tx-link {
-          display: inline-flex;
-          align-items: center;
-          gap: 6px;
-          font-size: 13px;
-          color: #2563eb;
-          text-decoration: none;
-          font-weight: 500;
-        }
-        .acre-tx-link:hover { text-decoration: underline; }
-
-        .acre-success-icon {
-          width: 40px;
-          height: 40px;
-          border-radius: 50%;
-          background: #ecfdf5;
-          border: 1px solid #6ee7b7;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          font-size: 18px;
-          flex-shrink: 0;
-        }
-      `}</style>
-
-      <div className="acre-root">
+    <div className="acre-root">
 
         {/* ── Header ── */}
         <div style={{ marginBottom: 32 }}>
@@ -570,8 +421,7 @@ function App() {
           </div>
         )}
 
-      </div>
-    </>
+    </div>
   )
 }
 

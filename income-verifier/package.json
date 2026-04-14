@@ -12,6 +12,7 @@
   "dependencies": {
     "@perawallet/connect": "^1.5.2",
     "@reclaimprotocol/js-sdk": "^4.15.2",
+    "algosdk": "^3.5.2",
     "qrcode.react": "^4.2.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4"
