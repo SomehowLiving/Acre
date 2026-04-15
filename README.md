@@ -1,95 +1,115 @@
-# Acre — Privacy-Preserving Income Verification for Gig Workers
+<h2 align="center">
+  Acre — Privacy-Preserving Income Verification for Gig Workers
+</h2>
 
-> **A zero-knowledge verification protocol that enables gig workers to prove income eligibility for loans — without revealing financial history.**
+<p align="center">
+  <img src="https://readme-typing-svg.demolab.com?font=Fira+Code&size=28&pause=800&color=3B82F6&center=true&vCenter=true&width=900&lines=Zero-Knowledge+Income+Verification;Prove+Earnings.+Keep+Privacy.;Gig+Workers+%7C+Blockchain+%7C+DPDP+Compliant" alt="Typing SVG" />
+</p>
 
-[![Built on Algorand](https://img.shields.io/badge/Built%20on-Algorand-00BCD4?style=flat-square)](https://algorand.com)
-[![ZK Proofs](https://img.shields.io/badge/ZK%20Proofs-Noir-7C3AED?style=flat-square)](https://noir-lang.org)
-[![Track](https://img.shields.io/badge/Track-Future%20of%20Finance%20%7C%20DPDP%20%26%20RegTech-orange?style=flat-square)](https://algobharat.in)
-[![Hackathon](https://img.shields.io/badge/AlgoBharat-Hack%20Series%203.0-blue?style=flat-square)](https://algobharat.in)
+<p align="center">
+  <img src="https://img.shields.io/badge/blockchain-algorand-00BCD4.svg?style=flat-square&logo=algorand&logoColor=white" />
+  <img src="https://img.shields.io/badge/zk--proofs-noir-7C3AED.svg?style=flat-square" />
+  <img src="https://img.shields.io/badge/privacy-dpdp_compliant-10B981.svg?style=flat-square" />
+  <img src="https://img.shields.io/badge/track-future_of_finance-FF6B35.svg?style=flat-square" />
+  <img src="https://img.shields.io/badge/hackathon-algobharat_3.0-5B21B6.svg?style=flat-square" />
+  <img src="https://img.shields.io/badge/frontend-react--typescript-3178C6.svg?style=flat-square&logo=typescript&logoColor=white" />
+  <img src="https://img.shields.io/badge/backend-nodejs--express-339933.svg?style=flat-square&logo=node.js&logoColor=white" />
+</p>
+
+---
+![ACRE](demo/acre.png)
+*LIVE*: 
+[https://acre-web-three.vercel.app](https://acre-web-three.vercel.app)
+
+*DEMO*:
+[https://youtu.be/Ih3T59cOI_I](https://youtu.be/Ih3T59cOI_I)
+
+*APP_ID*: `758797725` (Algorand Testnet)
 
 ---
 
 ## Table of Contents
 
-1. [Problem Statement](#1-problem-statement)
-2. [Solution Overview](#2-solution-overview)
+1. [Problem Statement](#problem-statement)
+2. [Solution Overview](#how-acre-solves-it)
 3. [High-Level Architecture](#3-high-level-architecture)
-4. [System Architecture](#4-system-architecture)
-5. [User Journey Architecture](#5-user-journey-architecture)
-6. [Core Components](#6-core-components)
-7. [Why Algorand](#7-why-algorand)
-8. [Privacy & Compliance (DPDP Act)](#8-privacy--compliance-dpdp-act)
+4. [System Components](#4-system-components)
+5. [User Journey](#5-user-journey-architecture)
+6. [Screenshots](#6-screenshots)
+7. [Why Algorand](#why-algorand)
+8. [Privacy & Compliance](#privacy--compliance-dpdp-act)
 9. [Smart Contract Logic](#9-smart-contract-logic)
 10. [Project Structure](#10-project-structure)
-11. [Live Demo & Deployment](#11-live-demo--deployment)
-12. [Setup & Installation](#12-setup--installation)
-13. [Use Cases](#13-use-cases)
-14. [Roadmap](#14-roadmap)
-15. [References](#15-references)
-16. [Team](#16-team)
+11. [Tech Stack](#-tech-stack)
+12. [Live Demo & Deployment](#-live-demo--deployment)
+13. [Installation & Setup](#️-installation--local-setup)
+14. [Use Cases](#-real-world-use-cases)
+15. [Roadmap](#️-roadmap)
+16. [References](#15-references)
+17. [Team](#-team)
+18. [Track Alignment](#-track-alignment)
 
 ---
 
-## 1. Problem Statement
+<h2 align="center">The Problem We're Solving</h2>
 
-India's **1.2 crore gig workers** — Uber drivers, Swiggy delivery partners, Upwork freelancers — generate regular, verifiable platform income. Yet they remain **credit-invisible** to formal lenders.
+<p align="center">
+  <img src="https://img.shields.io/badge/❌-Credit_Invisibility-red?style=for-the-badge"/>
+  <img src="https://img.shields.io/badge/❌-Privacy_Tradeoff-red?style=for-the-badge"/>
+</p>
 
-### Why lenders reject them
+<br/>
 
-Traditional lenders require:
-- Salary slips from a permanent employer
-- Formal payroll records
-- Historical bank statements with stable inflows
+<p align="center">
+  India's <b>1.2 crore gig workers</b> — Uber drivers, Swiggy delivery partners, Upwork freelancers — earn consistently.<br/>
+  Yet they remain <b>credit-invisible</b> to formal lenders and face a false choice:<br/>
+  <b>Financial Access OR Data Privacy</b>
+</p>
 
-Gig workers have **none of these in standard form**, despite earning consistently.
+<br/>
 
-### Why sharing data isn't the answer
+### The Core Challenge
 
-| Data Exposure Risk | Consequence |
+| Challenge | Impact |
 |:---|:---|
-| Raw bank statements shared with lenders | Privacy violation for workers |
-| Platform earnings shared openly | Breach of DPDP Act principles |
-| Transaction histories uploaded to fintech apps | Data aggregation and misuse risk |
-| Centralized storage of income data | Single point of failure / breach |
+| Raw bank statements shared with lenders | Privacy violations & DPDP breaches |
+| Platform earnings exposed openly | Aggregation & misuse risks |
+| Centralized data storage | Single point of failure |
+| No formal employment records | Instant rejection by traditional lenders |
 
-### The scale of the problem
-
-- **~1.2 crore** gig/platform workers in India (FY25, growing)
-- **~40%** of small/informal earners are credit-constrained (World Bank)
-- **10.9 crore** loans disbursed by fintechs in FY24-25 — yet most gig workers still excluded
-- Fintechs have distribution, but lack **privacy-safe underwriting signals** for this segment
-
-### The core tension
-
-> Gig workers face a false choice: **financial access OR data privacy.** Acre eliminates that tradeoff.
+### The Scale
+- **~1.2 crore** gig workers in India (growing ecosystem)
+- **~40%** of informal earners credit-constrained (World Bank)
+- **10.9 crore** loans by fintechs (FY24-25) — yet gig workers excluded
 
 ---
 
-## 2. Solution Overview
+<h2 align="center">How Acre Solves It</h2>
+
+<p align="center">
+  <img src="https://readme-typing-svg.demolab.com?font=Fira+Code&size=22&pause=1000&color=10B981&center=true&vCenter=true&width=800&lines=Cryptographic+Proof.+Zero+Data+Exposure.;On-Chain+Verification.+Privacy+Preserved." />
+</p>
 
 Acre is a **privacy-preserving income verification protocol** that allows gig workers to cryptographically prove their earning capacity — without exposing any raw financial data.
 
-### What workers prove (without revealing)
+### What Workers Prove (Without Revealing)
 
-```
-monthly_income > ₹40,000          ✓ provable, source hidden
-income_consistent_for_6_months    ✓ provable, transactions hidden
-income_band = tier_2              ✓ provable, exact amount hidden
-```
+<p align="center">
 
-### What remains private
+| Provable | Hidden |
+|:---:|:---:|
+| ✓ monthly_income > ₹40,000 | ❌ Exact amounts |
+| ✓ income_consistent_for_6_months | ❌ Transactions |
+| ✓ income_band = tier_2 | ❌ Platform names |
+| ✓ Credit eligible | ❌ Account balance |
 
-```
-❌ Exact payment amounts
-❌ Employer / platform names
-❌ Transaction-level history
-❌ Account balance
-❌ Payer identities
-```
+</p>
 
-### How it works in one line
+### How It Works (In One Line)
 
-Workers connect their income source → a ZK proof is generated locally → the proof (not the data) is submitted to an Algorand smart contract → lenders get a verified eligibility signal → loans are issued.
+<p align="center">
+  <code>Worker connects income → ZK proof generated locally → proof submitted to Algorand → verified eligibility → loans issued</code>
+</p>
 
 ---
 
@@ -199,37 +219,51 @@ sequenceDiagram
 
 ---
 
-## 7. Why Algorand
+<h2 align="center">Why Algorand</h2>
 
-| Property | Benefit for Acre |
-|:---|:---|
-| **Deterministic Execution** | Credit rules behave identically every time — no ordering surprises |
-| **Low Fees (~0.001 ALGO)** | Microloan issuance is economically viable at any ticket size |
-| **Atomic Transfers** | Collateral locking + loan disbursement in a single transaction group |
-| **Algorand Standard Assets (ASA)** | Native stablecoin support for loan currency (USDC, INR-pegged) |
-| **Fast Finality (< 4 seconds)** | Workers get loan confirmation near-instantly |
-| **ARC-4 ABI** | Clean SDK integration for fintech partners |
-| **Algorand Indexer** | Audit trails for regulatory reporting without exposing individual data |
+<p align="center">
+  <img src="https://readme-typing-svg.demolab.com?font=Fira+Code&size=22&pause=1000&color=00BCD4&center=true&vCenter=true&width=800&lines=Carbon+Negative.+Fast.+Scalable.;Perfect+for+Climate+Finance+&+Gig+Economy." />
+</p>
+
+<p align="center">
+
+| Property | Why It Matters for Acre |
+|:---:|:---|
+| ⚡ **Sub-3s Finality** | Workers get loan confirmation near-instantly |
+| 💰 **~0.001 ALGO/tx** | Microloan issuance economically viable at any size |
+| 🔗 **Atomic Transfers** | Collateral + disbursement in single transaction |
+| 🎯 **ASA Support** | Native stablecoin support (USDC, INR-pegged) |
+| 🏛️ **Deterministic Execution** | Credit rules behave identically every time |
+| 🗂️ **ARC-4 ABI** | Clean SDK integration for fintech partners |
+| 📊 **Indexer** | Audit trails for RBI / regulatory reporting |
+
+</p>
 
 ---
 
-## 8. Privacy & Compliance (DPDP Act)
+<h2 align="center">Privacy & Compliance (DPDP Act)</h2>
 
-Acre is designed from the ground up to align with India's **Digital Personal Data Protection (DPDP) Act, 2023**.
+<p align="center">
+  <b>Built from the ground up to align with India's Digital Personal Data Protection Act, 2023</b>
+</p>
+
+<p align="center">
 
 | DPDP Principle | Acre Implementation |
 |:---|:---|
-| **Data Minimization** | Only income predicates (true/false conditions) are revealed — never raw transactions |
-| **Purpose Limitation** | Data used exclusively for credit eligibility; ZK circuit enforces scope |
-| **Storage Limitation** | No raw financial data stored anywhere in the system |
-| **Consent-based** | Worker explicitly approves proof generation and submission |
-| **Verifiability** | Cryptographic proofs provide tamper-proof audit trails |
-| **Right to Erasure** | On-chain state can be nullified; off-chain data never stored |
+| **Data Minimization** | Only income predicates revealed — never raw transactions |
+| **Purpose Limitation** | Data used exclusively for credit eligibility |
+| **Storage Limitation** | Zero raw financial data stored anywhere |
+| **Consent-based** | Worker explicitly approves proof generation |
+| **Verifiability** | Cryptographic proofs provide audit trails |
+| **Right to Erasure** | On-chain state nullifiable; off-chain data never stored |
 
-**Regulatory audit trail:**
-- Algorand Indexer provides immutable event logs
-- Logs contain only proof hashes and eligibility outcomes — no PII
-- Suitable for RBI / fintech regulator reporting
+</p>
+
+### Regulatory Audit Trail
+- ✓ Algorand Indexer provides immutable event logs
+- ✓ Logs contain only proof hashes & eligibility outcomes (no PII)
+- ✓ Suitable for RBI / fintech regulator reporting
 
 ---
 
@@ -244,7 +278,7 @@ Acre is designed from the ground up to align with India's **Digital Personal Dat
 - Replay protection via proof hash
 - Timestamp freshness checks
 
-See [`CONTRACT.md`](CONTRACT.md) for full specification.
+See [`CONTRACT.md`](docs/CONTRACT.md) for full specification.
 
 ---
 
@@ -255,6 +289,30 @@ This is a **multi-repo** project:
 - **`acre-web`** → Frontend (React + Vite) → [Link](https://github.com/somehowliving/acre-web)
 - **`acre`** → Node.js Express server
 - **`acre-contract`** → PyTeal smart contract → [Link](https://github.com/SomehowLiving/Acre/blob/main/contracts/acre_verification.py)
+
+---
+
+<h2 align="center">🛠️ Tech Stack</h2>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/blockchain-algorand-00BCD4.svg?style=flat-square&logo=algorand&logoColor=white" />
+  <img src="https://img.shields.io/badge/zk--proofs-noir-7C3AED.svg?style=flat-square" />
+  <img src="https://img.shields.io/badge/smart_contracts-pyteal-FF6B35.svg?style=flat-square" />
+  <img src="https://img.shields.io/badge/frontend-react_18-61DAFB.svg?style=flat-square&logo=react&logoColor=black" />
+  <img src="https://img.shields.io/badge/backend-nodejs_express-339933.svg?style=flat-square&logo=node.js&logoColor=white" />
+  <img src="https://img.shields.io/badge/typing-typescript-3178C6.svg?style=flat-square&logo=typescript&logoColor=white" />
+  <img src="https://img.shields.io/badge/styling-tailwindcss-38BDF8.svg?style=flat-square&logo=tailwindcss&logoColor=white" />
+  <img src="https://img.shields.io/badge/privacy-reclaim_protocol-9D4EDD.svg?style=flat-square" />
+</p>
+
+| Layer | Technology |
+|:---|:---|
+| **Blockchain** | Algorand AVM, PyTeal Smart Contracts |
+| **Privacy** | Reclaim Protocol (zk-TLS), Noir ZK Circuits |
+| **Frontend** | React 18 + TypeScript + Vite + Tailwind CSS |
+| **Backend** | Node.js + Express + Algorand SDK |
+| **Proof Verification** | ECDSA signature validation |
+| **Compliance** | DPDP Act 2023 aligned |
 
 ---
 
@@ -278,7 +336,11 @@ This is a **multi-repo** project:
 
 ---
 
-## 12. Setup & Installation
+<h2 align="center">⚙️ Installation & Local Setup</h2>
+
+<p align="center">
+  <b>Get Acre running locally in 5 minutes</b>
+</p>
 
 ### Prerequisites
 - Node.js v18+
@@ -347,31 +409,39 @@ npm start
 
 ---
 
-## 13. Use Cases
+<h2 align="center">💡 Real-World Use Cases</h2>
 
-### Gig Worker Microloans
-A Swiggy delivery partner with 8 months of consistent ₹35,000/month earnings generates a ZK proof, submits it, and receives a ₹25,000 working capital loan — without ever sharing a bank statement with the lender.
+<p align="center">
 
-### Freelancer Credit Lines
-An Upwork freelancer with variable but above-threshold earnings proves income consistency and accesses a rolling credit line for equipment purchases.
+### 🛵 Gig Worker Microloans
+Swiggy delivery partner with 8 months of ₹35,000/month → ZK proof → ₹25,000 working capital loan (no bank statement required)
 
-### Privacy-Preserving BNPL
-A fintech app integrates the Acre SDK to offer BNPL to gig workers at checkout — eligibility verified in seconds, no document upload required.
+### 💼 Freelancer Credit Lines
+Upwork freelancer proves income consistency → access rolling credit line for equipment purchases
 
-### Decentralized Lending Pools
-DeFi lending protocols on Algorand use the verified income signal as an undercollateralized loan signal, expanding access beyond crypto-native users.
+### 🛒 Privacy-Preserving BNPL
+Fintech integrates Acre SDK → offer BNPL at checkout → eligibility verified in seconds
+
+### 🏦 Decentralized Lending Pools
+DeFi protocols on Algorand use verified income signal as undercollateralized loan indicator
+
+</p>
 
 ---
 
-## 14. Roadmap
+<h2 align="center">🗺️ Roadmap</h2>
+
+<p align="center">
 
 | Phase | Timeline | Milestone |
-|:---|:---|:---|
-| **Phase 1 — Hackathon MVP** | Current | Bank AA connector, Noir circuit, Algorand contract, basic demo |
-| **Phase 2 — Platform APIs** | Month 1–2 | Uber, Swiggy, Razorpay connectors; SDK alpha |
-| **Phase 3 — Pilot** | Month 3–4 | Integration with 1 NBFC/fintech partner; 100 test users |
-| **Phase 4 — Scale** | Month 5–6 | Decentralized lending pool; reputation scoring; RBI sandbox |
-| **Phase 5 — Ecosystem** | Month 7–12 | Multi-chain support; insurance use case; credit bureau integration |
+|:---:|:---|:---|
+| **Phase 1** | Current | Bank AA connector, Noir circuit, Algorand contract |
+| **Phase 2** | Month 1–2 | Uber, Swiggy, Razorpay connectors; SDK alpha |
+| **Phase 3** | Month 3–4 | NBFC/fintech pilot; 100 test users |
+| **Phase 4** | Month 5–6 | DeFi lending pool; reputation scoring; RBI sandbox |
+| **Phase 5** | Month 7–12 | Multi-chain support; insurance; credit bureau integration |
+
+</p>
 
 ---
 
@@ -390,27 +460,43 @@ DeFi lending protocols on Algorand use the verified income signal as an undercol
 
 ---
 
-## 16. Team
+<h2 align="center">👥 Team</h2>
 
-**Team:** [zkFarmers]
+<p align="center">
+  <b>zkFarmers — Building Privacy for Millions</b>
+</p>
+
+<p align="center">
 
 | Member | Role |
-|:---|:---|
-| Nidhi Prajapati | Blockchain & ZK Engineer |
+|:---:|:---|
+| Nidhi Prajapati [https://github.com/somehowliving]| Blockchain & ZK Engineer |
+
+</p>
 
 ---
 
-### Track Alignment
+<h2 align="center">🎯 Track Alignment</h2>
+
+<p align="center">
 
 | Track | How Acre Fits |
-|:---|:---|
+|:---:|:---|
 | **Future of Finance** | Privacy-preserving lending infrastructure for India's gig economy |
-| **DPDP & RegTech** | Built-in DPDP Act compliance via data minimization and ZK proofs |
+| **DPDP & RegTech** | Built-in DPDP Act compliance via data minimization & ZK proofs |
+
+</p>
 
 ---
 
-> *"Acre doesn't ask gig workers to choose between privacy and financial access. It proves they never had to."*
+<p align="center">
+  <b>✨ Acre doesn't ask gig workers to choose between privacy and financial access.<br/>It proves they never had to. ✨</b>
+</p>
 
----
+<p align="center">
+  <img src="https://capsule-render.vercel.app/api?type=waving&color=0:3B82F6,100:10B981&height=100&section=footer&text=AlgoBharat%203.0&fontSize=20"/>
+</p>
 
-**AlgoBharat Hack Series 3.0** · Built with ♥ for India's 1.2 crore gig workers
+<p align="center">
+  Built with ♥ for India's 1.2 crore gig workers
+</p>
