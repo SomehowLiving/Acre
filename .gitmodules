@@ -1,0 +1,3 @@
+[submodule "acre-web"]
+	path = acre-web
+	url = https://github.com/SomehowLiving/Acre.git
