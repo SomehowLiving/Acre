@@ -30,7 +30,7 @@ app.use(
       }
       return callback(new Error(`Not allowed by CORS: ${origin}`));
     },
-    methods: ['POST', 'OPTIONS'],
+    methods: ['GET', 'POST', 'OPTIONS'],
   })
 );
 app.use(express.json({ limit: '2mb' }));
@@ -54,17 +54,83 @@ function loadAppId() {
   return Number(deployedInfo.appId);
 }
 
-function getVerifyIncomeMethod() {
+function getContract() {
   if (!fs.existsSync(ABI_PATH)) {
     throw new Error('Missing contracts/acre_abi.json');
   }
   const abiSpec = JSON.parse(fs.readFileSync(ABI_PATH, 'utf8'));
-  const contract = new algosdk.ABIContract(abiSpec);
-  const method = contract.methods.find((m) => m.name === 'verify_income');
+  return new algosdk.ABIContract(abiSpec);
+}
+
+function getMethodByName(methodName) {
+  const contract = getContract();
+  const method = contract.methods.find((m) => m.name === methodName);
   if (!method) {
-    throw new Error('verify_income method not found in ABI');
+    throw new Error(`${methodName} method not found in ABI`);
   }
   return method;
+}
+
+function getAlgodClient() {
+  const algodServer = requireEnv('ALGOD_SERVER', 'TESTNET_ALGOD_SERVER');
+  const algodToken = process.env.ALGOD_TOKEN || process.env.TESTNET_ALGOD_TOKEN || '';
+  return new algosdk.Algodv2(algodToken, algodServer, '');
+}
+
+function getVerifierAccount() {
+  const verifierMnemonic = requireEnv('VERIFIER_MNEMONIC', 'DEPLOYER_MNEMONIC');
+  return algosdk.mnemonicToSecretKey(verifierMnemonic);
+}
+
+function getAdminAccount() {
+  const adminMnemonic = requireEnv('ADMIN_MNEMONIC', 'VERIFIER_MNEMONIC');
+  return algosdk.mnemonicToSecretKey(adminMnemonic);
+}
+
+function normalizeAbiValue(value) {
+  if (typeof value === 'bigint') return value.toString();
+  if (value instanceof Uint8Array || Buffer.isBuffer(value)) {
+    return Buffer.from(value).toString('hex');
+  }
+  if (Array.isArray(value)) return value.map(normalizeAbiValue);
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value).map(([k, v]) => [k, normalizeAbiValue(v)])
+    );
+  }
+  return value;
+}
+
+async function callReadMethod({
+  methodName,
+  methodArgs = [],
+  appAccounts = [],
+}) {
+  const algodClient = getAlgodClient();
+  const verifier = getVerifierAccount();
+  const appId = loadAppId();
+  const method = getMethodByName(methodName);
+  const suggestedParams = await algodClient.getTransactionParams().do();
+
+  const atc = new algosdk.AtomicTransactionComposer();
+  atc.addMethodCall({
+    appID: appId,
+    method,
+    sender: verifier.addr,
+    signer: algosdk.makeBasicAccountTransactionSigner(verifier),
+    suggestedParams,
+    appAccounts,
+    methodArgs,
+  });
+
+  const { methodResults } = await atc.simulate(algodClient);
+  if (!methodResults?.length) {
+    throw new Error(`No method result returned for ${methodName}`);
+  }
+  if (methodResults[0].decodeError) {
+    throw methodResults[0].decodeError;
+  }
+  return normalizeAbiValue(methodResults[0].returnValue);
 }
 
 async function waitForConfirmation(client, txId, timeoutRounds = 30) {
@@ -154,14 +220,10 @@ async function callVerifyIncomeOnChain({
   riderRating,
   platform,
 }) {
-  const algodServer = requireEnv('ALGOD_SERVER', 'TESTNET_ALGOD_SERVER');
-  const algodToken = process.env.ALGOD_TOKEN || process.env.TESTNET_ALGOD_TOKEN || '';
-  const verifierMnemonic = requireEnv('VERIFIER_MNEMONIC', 'DEPLOYER_MNEMONIC');
+  const algodClient = getAlgodClient();
+  const verifierSk = getVerifierAccount();
   const appId = loadAppId();
-  const method = getVerifyIncomeMethod();
-
-  const algodClient = new algosdk.Algodv2(algodToken, algodServer, '');
-  const verifierSk = algosdk.mnemonicToSecretKey(verifierMnemonic);
+  const method = getMethodByName('verify_income');
 
   await assertUserOptedIn(algodClient, walletAddress, appId);
 
@@ -393,6 +455,163 @@ function logProofStructure(proof) {
   console.log('╚══════════════════════════════════════════════════════════════════╝');
 }
 
+app.get('/api/user/:address/eligibility', async (req, res) => {
+  try {
+    const { address } = req.params;
+    const value = await callReadMethod({
+      methodName: 'get_eligibility',
+      methodArgs: [address],
+      appAccounts: [address],
+    });
+    return res.json({ success: true, address, eligibility: value });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error?.message || 'Failed to fetch eligibility' });
+  }
+});
+
+app.get('/api/user/:address/verified', async (req, res) => {
+  try {
+    const { address } = req.params;
+    const value = await callReadMethod({
+      methodName: 'is_verified',
+      methodArgs: [address],
+      appAccounts: [address],
+    });
+    return res.json({ success: true, address, verified: Number(value) === 1 });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error?.message || 'Failed to fetch verification status' });
+  }
+});
+
+app.get('/api/user/:address/tier', async (req, res) => {
+  try {
+    const { address } = req.params;
+    const value = await callReadMethod({
+      methodName: 'get_tier',
+      methodArgs: [address],
+      appAccounts: [address],
+    });
+    return res.json({ success: true, address, tier: value });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error?.message || 'Failed to fetch tier' });
+  }
+});
+
+app.get('/api/user/:address/credit-limit', async (req, res) => {
+  try {
+    const { address } = req.params;
+    const value = await callReadMethod({
+      methodName: 'get_credit_limit',
+      methodArgs: [address],
+      appAccounts: [address],
+    });
+    return res.json({ success: true, address, creditLimit: value });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error?.message || 'Failed to fetch credit limit' });
+  }
+});
+
+app.get('/api/user/:address/full-profile', async (req, res) => {
+  try {
+    const { address } = req.params;
+    const value = await callReadMethod({
+      methodName: 'get_full_profile',
+      methodArgs: [address],
+      appAccounts: [address],
+    });
+    const [verified, tier, creditLimit, timestamp, riderCount, riderRating, platform] = Array.isArray(value) ? value : [];
+    return res.json({
+      success: true,
+      address,
+      profile: {
+        verified: Number(verified) === 1,
+        tier,
+        creditLimit,
+        timestamp,
+        riderCount,
+        riderRating,
+        platform,
+      },
+    });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error?.message || 'Failed to fetch full profile' });
+  }
+});
+
+app.get('/api/user/:address/proof-hash', async (req, res) => {
+  try {
+    const { address } = req.params;
+    const value = await callReadMethod({
+      methodName: 'get_proof_hash',
+      methodArgs: [address],
+      appAccounts: [address],
+    });
+    return res.json({ success: true, address, proofHash: value });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error?.message || 'Failed to fetch proof hash' });
+  }
+});
+
+app.get('/api/verifier', async (_req, res) => {
+  try {
+    const verifier = await callReadMethod({ methodName: 'get_verifier' });
+    return res.json({ success: true, verifier });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error?.message || 'Failed to fetch verifier' });
+  }
+});
+
+app.get('/api/admin', async (_req, res) => {
+  try {
+    const admin = await callReadMethod({ methodName: 'get_admin' });
+    return res.json({ success: true, admin });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error?.message || 'Failed to fetch admin' });
+  }
+});
+
+app.get('/api/proof-count', async (_req, res) => {
+  try {
+    const proofCount = await callReadMethod({ methodName: 'get_proof_count' });
+    return res.json({ success: true, proofCount });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error?.message || 'Failed to fetch proof count' });
+  }
+});
+
+app.post('/api/update-verifier', async (req, res) => {
+  try {
+    const { newVerifier } = req.body || {};
+    if (!newVerifier || !algosdk.isValidAddress(newVerifier)) {
+      return res.status(400).json({ success: false, message: 'Invalid or missing newVerifier address' });
+    }
+
+    const algodClient = getAlgodClient();
+    const admin = getAdminAccount();
+    const appId = loadAppId();
+    const method = getMethodByName('update_verifier');
+    const suggestedParams = await algodClient.getTransactionParams().do();
+
+    const atc = new algosdk.AtomicTransactionComposer();
+    atc.addMethodCall({
+      appID: appId,
+      method,
+      sender: admin.addr,
+      signer: algosdk.makeBasicAccountTransactionSigner(admin),
+      suggestedParams,
+      methodArgs: [newVerifier],
+    });
+
+    const result = await atc.execute(algodClient, 4);
+    const txId = result.txIDs[0];
+    await algosdk.waitForConfirmation(algodClient, txId, 4);
+
+    return res.json({ success: true, txId, newVerifier });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error?.message || 'Failed to update verifier' });
+  }
+});
+
 app.post('/verify-proof', async (req, res) => {
   try {
     const { proof, walletAddress } = req.body || {};
@@ -501,6 +720,13 @@ app.post('/verify-proof', async (req, res) => {
 
   } catch (error) {
     console.error('\n❌ VERIFICATION ERROR:', error);
+    if ((error?.message || '').includes('User must opt in to the app before verification')) {
+      return res.status(409).json({
+        success: false,
+        needsOptIn: true,
+        message: error.message,
+      });
+    }
     return res.status(500).json({
       success: false,
       message: error?.message || 'Internal verification error',
