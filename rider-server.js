@@ -10,24 +10,40 @@ const PORT = process.env.PORT || 3001;
 
 const allowedOrigins = (
   process.env.CORS_ORIGINS ||
-  'http://localhost:3000,http://localhost:5173,http://127.0.0.1:5173'
+  'http://localhost:3000,http://localhost:5173,http://127.0.0.1:5173,http://localhost:8080,http://127.0.0.1:8080'
 )
   .split(',')
   .map((origin) => origin.trim())
   .filter(Boolean);
 
+const allowedOriginPatterns = [
+  /^https:\/\/id-preview--.*\.lovable\.app$/,
+];
+
+const corsOptions = {
+  origin(origin, callback) {
+    const isAllowedPattern = origin
+      ? allowedOriginPatterns.some((pattern) => pattern.test(origin))
+      : false;
+    if (!origin || allowedOrigins.includes(origin) || isAllowedPattern) {
+      return callback(null, true);
+    }
+    return callback(new Error(`Not allowed by CORS: ${origin}`));
+  },
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true,
+};
+
 app.use(
-  cors({
-    origin(origin, callback) {
-      if (!origin || allowedOrigins.includes(origin)) {
-        return callback(null, true);
-      }
-      return callback(new Error(`Not allowed by CORS: ${origin}`));
-    },
-    methods: ['POST', 'OPTIONS'],
-  })
+  cors(corsOptions)
 );
+app.options(/.*/, cors(corsOptions));
 app.use(express.json({ limit: '2mb' }));
+
+app.get('/', (_req, res) => {
+  res.send('API is running');
+});
 
 /**
  * NEW PROVIDER: uber-profile-ride-history

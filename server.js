@@ -6,6 +6,7 @@ const Reclaim = require('@reclaimprotocol/js-sdk');
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
+require('dotenv').config();
 const algosdk = require('algosdk');
 
 const app = express();
@@ -16,24 +17,40 @@ const DEPLOYED_APP_PATH = path.join(CONTRACTS_DIR, 'deployed_testnet_app.json');
 
 const allowedOrigins = (
   process.env.CORS_ORIGINS ||
-  'http://localhost:3000,http://localhost:5173,http://127.0.0.1:5173'
+  'http://localhost:3000,http://localhost:5173,http://127.0.0.1:5173,http://localhost:8080,http://127.0.0.1:8080'
 )
   .split(',')
   .map((origin) => origin.trim())
   .filter(Boolean);
 
+const allowedOriginPatterns = [
+  /^https:\/\/id-preview--.*\.lovable\.app$/,
+];
+
+const corsOptions = {
+  origin(origin, callback) {
+    const isAllowedPattern = origin
+      ? allowedOriginPatterns.some((pattern) => pattern.test(origin))
+      : false;
+    if (!origin || allowedOrigins.includes(origin) || isAllowedPattern) {
+      return callback(null, true);
+    }
+    return callback(new Error(`Not allowed by CORS: ${origin}`));
+  },
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true,
+};
+
 app.use(
-  cors({
-    origin(origin, callback) {
-      if (!origin || allowedOrigins.includes(origin)) {
-        return callback(null, true);
-      }
-      return callback(new Error(`Not allowed by CORS: ${origin}`));
-    },
-    methods: ['GET', 'POST', 'OPTIONS'],
-  })
+  cors(corsOptions)
 );
+app.options(/.*/, cors(corsOptions));
 app.use(express.json({ limit: '2mb' }));
+
+app.get('/', (_req, res) => {
+  res.send('API is running');
+});
 
 function requireEnv(name, fallback) {
   const value = process.env[name] || (fallback ? process.env[fallback] : undefined);
@@ -262,7 +279,7 @@ function generateDriverData() {
   const accountAgeMonths = Math.floor(Math.random() * 42) + 6;
   const weeklyEarnings = Math.floor(Math.random() * 7000) + 8000;
   const monthlyEarnings = weeklyEarnings * 4;
-  
+
   return {
     tripsCompleted,
     driverRating: parseFloat(driverRating),
@@ -274,11 +291,11 @@ function generateDriverData() {
 
 function calculateCreditTier(driverData) {
   const { tripsCompleted, driverRating, monthlyEarnings, accountAgeMonths } = driverData;
-  
+
   let tier = 1;
   let creditLimit = 10000;
   let reason = 'New driver';
-  
+
   if (tripsCompleted >= 2000 && driverRating >= 4.8 && monthlyEarnings >= 50000) {
     tier = 3;
     creditLimit = 50000;
@@ -292,7 +309,7 @@ function calculateCreditTier(driverData) {
     creditLimit = 10000;
     reason = 'Growing driver';
   }
-  
+
   return { tier, creditLimit, reason };
 }
 
@@ -303,38 +320,38 @@ function extractUid(claimData) {
   try {
     let uid = claimData?.uid || claimData?.userId || claimData?.user_id || claimData?.sub || claimData?.id;
     if (uid) return uid;
-    
+
     const params = claimData?.parameters;
     if (typeof params === 'string') {
       const parsed = JSON.parse(params);
-      
+
       uid = parsed?.extractedParameters?.uid ||
-            parsed?.extractedParameters?.userId ||
-            parsed?.extractedParameters?.user_id ||
-            parsed?.extractedParameters?.sub ||
-            parsed?.extractedParameters?.id;
-      
+        parsed?.extractedParameters?.userId ||
+        parsed?.extractedParameters?.user_id ||
+        parsed?.extractedParameters?.sub ||
+        parsed?.extractedParameters?.id;
+
       if (uid) return uid;
-      
+
       uid = parsed?.paramValues?.uid ||
-            parsed?.paramValues?.userId ||
-            parsed?.paramValues?.user_id;
-      
+        parsed?.paramValues?.userId ||
+        parsed?.paramValues?.user_id;
+
       if (uid) return uid;
     }
-    
+
     const context = claimData?.context;
     if (typeof context === 'string') {
       const parsedContext = JSON.parse(context);
       uid = parsedContext?.extractedParameters?.uid ||
-            parsedContext?.extractedParameters?.userId;
+        parsedContext?.extractedParameters?.userId;
       if (uid) return uid;
     }
-    
+
   } catch (e) {
     console.log('UID extraction parse error:', e.message);
   }
-  
+
   return null;
 }
 
@@ -347,8 +364,8 @@ function extractEmail(claimData) {
     if (typeof params === 'string') {
       const parsed = JSON.parse(params);
       return parsed?.extractedParameters?.email ||
-             parsed?.extractedParameters?.emailAddress ||
-             parsed?.extractedParameters?.userEmail;
+        parsed?.extractedParameters?.emailAddress ||
+        parsed?.extractedParameters?.userEmail;
     }
   } catch (e) {
     // ignore
@@ -363,13 +380,13 @@ function logProofStructure(proof) {
   console.log('\n╔══════════════════════════════════════════════════════════════════╗');
   console.log('║                    📋 FULL PROOF STRUCTURE                        ║');
   console.log('╠══════════════════════════════════════════════════════════════════╣');
-  
+
   // Top-level fields
   console.log('║ TOP-LEVEL FIELDS:');
   console.log('║   • identifier:', proof?.identifier?.slice(0, 30) + '...' || 'undefined');
   console.log('║   • epoch:', proof?.epoch);
   console.log('║   • publicData:', proof?.publicData || 'null');
-  
+
   // Claim Data
   console.log('║');
   console.log('║ 📦 CLAIM DATA:');
@@ -379,39 +396,39 @@ function logProofStructure(proof) {
   console.log('║   • timestampS:', claimData?.timestampS, `(${new Date(claimData?.timestampS * 1000).toISOString()})`);
   console.log('║   • identifier:', claimData?.identifier?.slice(0, 30) + '...' || 'undefined');
   console.log('║   • epoch:', claimData?.epoch);
-  
+
   // Parameters (parsed)
   console.log('║');
   console.log('║ 🔧 PARAMETERS (parsed from JSON):');
   try {
-    const params = typeof claimData?.parameters === 'string' 
-      ? JSON.parse(claimData.parameters) 
+    const params = typeof claimData?.parameters === 'string'
+      ? JSON.parse(claimData.parameters)
       : claimData?.parameters;
-    
+
     if (params) {
       console.log('║   • url:', params?.url?.slice(0, 50) + '...' || 'undefined');
       console.log('║   • method:', params?.method);
       console.log('║   • body length:', params?.body?.length || 0, 'chars');
-      
+
       console.log('║');
       console.log('║   📊 EXTRACTED PARAMETERS:');
       const extracted = params?.extractedParameters || {};
       Object.entries(extracted).slice(0, 5).forEach(([key, value]) => {
-        const displayValue = typeof value === 'string' && value.length > 40 
-          ? value.slice(0, 40) + '...' 
+        const displayValue = typeof value === 'string' && value.length > 40
+          ? value.slice(0, 40) + '...'
           : value;
         console.log(`║     • ${key}:`, displayValue);
       });
       if (Object.keys(extracted).length > 5) {
         console.log(`║     ... and ${Object.keys(extracted).length - 5} more fields`);
       }
-      
+
       console.log('║');
       console.log('║   🎯 PARAM VALUES:');
       const paramValues = params?.paramValues || {};
       Object.entries(paramValues).slice(0, 3).forEach(([key, value]) => {
-        const displayValue = typeof value === 'string' && value.length > 40 
-          ? value.slice(0, 40) + '...' 
+        const displayValue = typeof value === 'string' && value.length > 40
+          ? value.slice(0, 40) + '...'
           : value;
         console.log(`║     • ${key}:`, displayValue);
       });
@@ -419,7 +436,7 @@ function logProofStructure(proof) {
   } catch (e) {
     console.log('║   ⚠️ Could not parse parameters:', e.message);
   }
-  
+
   // Context
   console.log('║');
   console.log('║ 📝 CONTEXT:');
@@ -435,7 +452,7 @@ function logProofStructure(proof) {
   } catch (e) {
     console.log('║   ⚠️ Could not parse context');
   }
-  
+
   // Signatures
   console.log('║');
   console.log('║ ✍️  SIGNATURES:');
@@ -443,7 +460,7 @@ function logProofStructure(proof) {
   if (proof?.signatures?.[0]) {
     console.log('║   • first:', proof.signatures[0].slice(0, 40) + '...');
   }
-  
+
   // Witnesses
   console.log('║');
   console.log('║ 👁️  WITNESSES:');
@@ -451,7 +468,7 @@ function logProofStructure(proof) {
     console.log(`║   • [${i}] id:`, w?.id?.slice(0, 20) + '...');
     console.log(`║       url:`, w?.url);
   });
-  
+
   console.log('╚══════════════════════════════════════════════════════════════════╝');
 }
 
@@ -617,9 +634,9 @@ app.post('/verify-proof', async (req, res) => {
     const { proof, walletAddress } = req.body || {};
 
     if (!proof) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Missing proof' 
+      return res.status(400).json({
+        success: false,
+        message: 'Missing proof'
       });
     }
     if (!walletAddress) {
@@ -646,9 +663,9 @@ app.post('/verify-proof', async (req, res) => {
     const isValid = await Reclaim.verifyProof(proof);
     if (!isValid) {
       console.log('❌ PROOF VERIFICATION FAILED');
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Invalid proof signature' 
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid proof signature'
       });
     }
     console.log('✅ PROOF SIGNATURE VERIFIED');
@@ -662,7 +679,7 @@ app.post('/verify-proof', async (req, res) => {
     if (context.contextAddress && context.contextAddress !== walletAddress) {
       throw new Error('Wallet mismatch with proof');
     }
-    
+
     // Extract UID
     const uberUid = extractUid(claimData);
     const email = extractEmail(claimData);
@@ -734,7 +751,25 @@ app.post('/verify-proof', async (req, res) => {
   }
 });
 
-app.listen(PORT, () => {
-  console.log(`🚀 Acre backend on http://localhost:${PORT}`);
-  console.log(`📜 Proof logging enabled\n`);
+const server = app.listen(PORT);
+
+server.on('listening', () => {
+  const address = server.address();
+  const port = typeof address === 'object' && address ? address.port : PORT;
+  console.log(`🚀 Acre backend on http://localhost:${port}`);
+  console.log('📜 Proof logging enabled\n');
+});
+
+server.on('error', (error) => {
+  if (error?.code === 'EADDRINUSE') {
+    console.error(`❌ Port ${PORT} is already in use. Stop the other process or run with PORT=<new-port>.`);
+    process.exitCode = 1;
+    return;
+  }
+  console.error('❌ Server failed to start:', error);
+  process.exitCode = 1;
+});
+
+server.on('close', () => {
+  console.error('⚠️ HTTP server closed');
 });
