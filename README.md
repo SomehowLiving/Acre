@@ -19,15 +19,14 @@
 6. [Core Components](#6-core-components)
 7. [Why Algorand](#7-why-algorand)
 8. [Privacy & Compliance (DPDP Act)](#8-privacy--compliance-dpdp-act)
-9. [ZK Circuit Design](#9-zk-circuit-design)
-10. [Smart Contract Logic](#10-smart-contract-logic)
-11. [Demo Flow](#11-demo-flow)
-12. [Project Structure](#12-project-structure)
-13. [Setup & Installation](#13-setup--installation)
-14. [Use Cases](#14-use-cases)
-15. [Roadmap](#15-roadmap)
-16. [References](#16-references)
-17. [Team](#17-team)
+9. [Smart Contract Logic](#9-smart-contract-logic)
+10. [Project Structure](#10-project-structure)
+11. [Live Demo & Deployment](#11-live-demo--deployment)
+12. [Setup & Installation](#12-setup--installation)
+13. [Use Cases](#13-use-cases)
+14. [Roadmap](#14-roadmap)
+15. [References](#15-references)
+16. [Team](#16-team)
 
 ---
 
@@ -47,7 +46,7 @@ Gig workers have **none of these in standard form**, despite earning consistentl
 ### Why sharing data isn't the answer
 
 | Data Exposure Risk | Consequence |
-|---|---|
+|:---|:---|
 | Raw bank statements shared with lenders | Privacy violation for workers |
 | Platform earnings shared openly | Breach of DPDP Act principles |
 | Transaction histories uploaded to fintech apps | Data aggregation and misuse risk |
@@ -96,303 +95,114 @@ Workers connect their income source → a ZK proof is generated locally → the 
 
 ## 3. High-Level Architecture
 
-```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                        Acre — High-Level View                       │
-└─────────────────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart LR
+    subgraph User
+        W[Worker]
+    end
 
-   ┌──────────────┐     ┌───────────────────┐     ┌─────────────────────┐
-   │  Web2 World  │     │   ZK Bridge Layer  │     │   Web3 / Algorand   │
-   │              │     │                   │     │                     │
-   │  Bank APIs   │────▶│  TLSNotary /      │────▶│  Smart Contract     │
-   │  Uber API    │     │  zkTLS Attestation│     │  Income Verifier    │
-   │  Razorpay    │     │                   │     │                     │
-   │  Swiggy API  │     │  Noir ZK Circuits │────▶│  Credit Eligibility │
-   │  Upwork API  │     │  (Client-side)    │     │  Engine             │
-   └──────────────┘     └───────────────────┘     └──────────┬──────────┘
-                                                             │
-                                                             ▼
-                                               ┌─────────────────────────┐
-                                               │    Lending Protocol     │
-                                               │                         │
-                                               │  • Micro-loans (ASA)    │
-                                               │  • BNPL                 │
-                                               │  • DeFi Lending Pools   │
-                                               │  • Fintech SDK          │
-                                               └─────────────────────────┘
+    subgraph "Acre Application"
+        FE[Frontend]
+        BE[Backend]
+    end
+
+    subgraph "Reclaim Protocol"
+        RA[Attestors + zk-TLS]
+        ZKC[Noir ZK Circuit]
+    end
+
+    subgraph Blockchain
+        ASC["Acre Smart Contract<br/>on Algorand"]
+    end
+
+    L[Lender / Fintech]
+
+    W --> FE
+    FE --> RA
+    RA --> ZKC
+    ZKC --> FE
+    FE --> BE
+    BE --> ASC
+    L --> ASC
 ```
 
 ---
 
-## 4. System Architecture
+## 4. System Components
 
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                        Acre — System Architecture                        │
-└─────────────────────────────────────────────────────────────────────────────┘
-
- LAYER 1: DATA ATTESTATION
- ┌──────────────────────────────────────────────────────────────────────────┐
- │                                                                          │
- │   Income Source          TLSNotary / zkTLS                               │
- │   ┌──────────┐           ┌──────────────────────────────────────┐        │
- │   │ Bank AA  │──────────▶│  Proves: "This API response came     │        │
- │   │ Uber API │           │  from authentic server X"            │        │
- │   │ Razorpay │           │                                      │        │
- │   │ Swiggy   │           │  Output: Signed attestation blob     │        │
- │   │ Upwork   │           │  (server identity + data hash)       │        │
- │   └──────────┘           └──────────────────────────────────────┘        │
- │                                            │                             │
- └────────────────────────────────────────────┼─────────────────────────────┘
-                                              │ Attested data blob
-                                              ▼
- LAYER 2: ZK PROOF GENERATION
- ┌──────────────────────────────────────────────────────────────────────────┐
- │                                                                          │
- │   Noir ZK Circuit (runs client-side / secure enclave)                    │
- │                                                                          │
- │   Private Inputs:              Public Outputs:                           │
- │   ┌──────────────────┐         ┌───────────────────────────────────┐     │
- │   │ • Raw income data│────────▶│ • income_above_threshold: true    │     │
- │   │ • Timestamps     │         │ • consistency_months: 6           │     │
- │   │ • Transaction IDs│         │ • income_band: tier_2             │     │
- │   │ • Platform tokens│         │ • proof_timestamp: <unix>         │     │
- │   └──────────────────┘         │ • source_hash: <hash>             │     │
- │                                └───────────────────────────────────┘     │
- │                                          │                               │
- │                              ZK Proof (~200 bytes)                       │
- └──────────────────────────────────────────┼─────────────────────────────-─┘
-                                            │
-                                            ▼
- LAYER 3: ALGORAND SMART CONTRACT
- ┌──────────────────────────────────────────────────────────────────────────┐
- │                                                                          │
- │   Income Verifier Contract (PyTeal / ARC-4)                              │
- │                                                                          │
- │   Verification Checks:              State Written On-Chain:              │
- │   ┌────────────────────────┐        ┌───────────────────────────────┐    │
- │   │ ✓ ZK proof validity    │───────▶│ income_verified: true         │    │
- │   │ ✓ Proof freshness      │        │ income_band: tier_2           │    │
- │   │   (not older than 90d) │        │ credit_limit: ₹50,000         │    │
- │   │ ✓ Source attestation   │        │ verified_at: <timestamp>      │    │
- │   │   signature valid      │        │ reputation_score: <int>       │    │
- │   └────────────────────────┘        └───────────────────────────────┘    │
- │                                                                          │
- └──────────────────────────────────────────┬───────────────────────────────┘
-                                            │ Eligibility signal
-                                            ▼
- LAYER 4: LENDING PROTOCOL
- ┌──────────────────────────────────────────────────────────────────────────┐
- │                                                                          │
- │   Lending Interface                     Settlement                       │
- │   ┌──────────────────────────┐          ┌────────────────────────────┐   │
- │   │ • Fintech SDK            │          │ Atomic Transfer Group:     │   │
- │   │ • NBFC integration       │─────────▶│  • Lock collateral (ASA)   │   │
- │   │ • DeFi lending pool      │          │  • Disburse loan (USDC/INR)│   │
- │   │ • BNPL provider          │          │  • Record repayment terms  │   │
- │   └──────────────────────────┘          └────────────────────────────┘   │
- │                                                                          │
- └──────────────────────────────────────────────────────────────────────────┘
-```
+| Component | Tech Stack | Responsibility |
+|:---|:---|:---|
+| **Frontend** | React 18 + TypeScript + Vite + Tailwind | UI, Wallet (Pera), Reclaim SDK, Opt-in |
+| **Backend** | Node.js + Express | Proof verification, tier calculation, chain submission |
+| **Reclaim Protocol** | zk-TLS + Attestor Network | Secure data attestation & ZK proof generation |
+| **Smart Contract** | PyTeal (ARC-4) | Immutable eligibility storage & queries |
+| **Blockchain** | Algorand Testnet | Finality, low fees, atomicity |
 
 ---
 
 ## 5. User Journey Architecture
 
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                        Acre — User Journey                               │
-└─────────────────────────────────────────────────────────────────────────────┘
+```mermaid
+sequenceDiagram
+    participant W as Gig Worker
+    participant F as acre-web
+    participant R as Reclaim
+    participant B as Backend
+    participant SC as Smart Contract
+    participant L as Lender
 
-  WORKER                    APP                      BLOCKCHAIN              LENDER
-    │                        │                           │                     │
-    │  1. Connect income      │                           │                     │
-    │─────────────────────▶  │                           │                     │
-    │  (Bank AA / Uber API)   │                           │                     │
-    │                        │                           │                     │
-    │                        │  2. Fetch & attest data   │                     │
-    │                        │  via TLSNotary            │                     │
-    │                        │◀─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─▷│                     │
-    │                        │  (server-signed blob)     │                     │
-    │                        │                           │                     │
-    │                        │  3. Generate ZK proof     │                     │
-    │                        │  (Noir circuit, local)    │                     │
-    │                        │  ┌─────────────────────┐  │                     │
-    │                        │  │ Private: raw data   │  │                     │
-    │                        │  │ Public: predicates  │  │                     │
-    │                        │  └─────────────────────┘  │                     │
-    │                        │                           │                     │
-    │  4. Preview proof       │                           │                     │
-    │◀────────────────────── │                           │                     │
-    │  income_band: tier_2    │                           │                     │
-    │  credit_limit: ₹50,000  │                           │                     │
-    │  (no raw data shown)    │                           │                     │
-    │                        │                           │                     │
-    │  5. Approve & submit    │                           │                     │
-    │─────────────────────▶  │                           │                     │
-    │                        │  6. Submit proof to       │                     │
-    │                        │  Algorand contract        │                     │
-    │                        │──────────────────────────▶│                     │
-    │                        │                           │                     │
-    │                        │                           │  7. Verify proof     │
-    │                        │                           │  • ZK validity       │
-    │                        │                           │  • Freshness check   │
-    │                        │                           │  • Source signature  │
-    │                        │                           │                     │
-    │                        │                           │  8. Write state      │
-    │                        │                           │  income_verified=true│
-    │                        │                           │  credit_limit=₹50k   │
-    │                        │                           │                     │
-    │                        │                           │  9. Emit event ─────▶│
-    │                        │                           │                     │
-    │                        │                           │        10. Lender    │
-    │                        │                           │        reads signal  │
-    │                        │                           │        issues loan   │
-    │                        │                           │             │        │
-    │  11. Loan disbursed     │                           │             │        │
-    │◀────────────────────── │◀──────────────────────────│◀────────────┘        │
-    │  ASA stablecoin loan    │  Atomic transfer settled  │                     │
-    │                        │                           │                     │
-    │  12. Repay loan         │                           │                     │
-    │─────────────────────▶  │──────────────────────────▶│                     │
-    │                        │  Update reputation score  │                     │
-    │                        │                           │                     │
+    W->>F: Connect Wallet + Verify Income
+    F->>R: Create QR Session
+    W->>R: Scan QR & Login to Uber
+    R->>W: Generate ZK Proof
+    W->>F: Proof Received
+    F->>B: POST /verify-proof
+    B->>B: Verify ECDSA + Calculate Tier
+    B->>SC: verify_income()
+    SC-->>B: Confirmed
+    B-->>F: Success (Tier 2, ₹25,000)
+    F-->>W: Verification Complete
+    L->>SC: get_eligibility(wallet)
+    SC-->>L: Credit Limit
 ```
 
 ---
 
-## 6. Core Components
+## 6. Screenshots
 
-### 6.1 Data Attestation Layer
+### 1. Product Feature Overview
+![Features](demo/features.png)
 
-Uses **TLSNotary / zkTLS** to prove that income data originated from a legitimate server — without revealing the content.
+### 2. Protocol Flow / How Acre Works
+![How It Works](demo/how-it-works.png)
 
-**Supported Sources:**
+### 3. User Dashboard
+![User Dashboard](demo/user-dashboard.png)
 
-| Source | Type | Status |
-|--------|------|--------|
-| Bank Account (Account Aggregator) | Regulated API | ✅ Phase 1 |
-| Razorpay / Stripe payouts | Payment processor | ✅ Phase 1 |
-| Uber earnings dashboard | Platform API | 🔄 Phase 2 |
-| Swiggy partner payouts | Platform API | 🔄 Phase 2 |
-| Upwork payment history | Freelance platform | 🔄 Phase 2 |
+### 4. Proof Generation Workspace
+![proof generation](demo/proof-gen.png)
 
-**How attestation works:**
-1. Worker initiates OAuth or AA consent
-2. TLSNotary intercepts the TLS session and creates a notarized proof
-3. Output: a signed blob containing `{server_identity, data_hash, timestamp}` — no raw content
+### 5. Reclaim QR Scan Step
+![qr-scan](demo/qr-scan.png)
 
----
+### 6. Data Source Connected (Uber)
+![uber-connected](demo/uber-connected.png)
 
-### 6.2 ZK Proof Engine (Noir)
+### 7. Verification In Progress
+![in-process](demo/in-process.png)
 
-Circuits prove predicates over private income data.
+### 8. Proof Successfully Generated
+![proof-generated](demo/proof-generated.png)
 
-**Circuit: `income_range.nr`**
-```
-// Simplified circuit logic
-fn main(
-    monthly_incomes: [Field; 6],   // private
-    threshold: Field,               // public
-    consistency_months: Field,      // public
-) -> pub bool {
-    let total = sum(monthly_incomes);
-    let avg = total / 6;
-    let consistent = count_above(monthly_incomes, threshold * 0.8);
-    assert(avg > threshold);
-    assert(consistent >= consistency_months);
-    return true;
-}
-```
-
-**Output:** A compact (~200 byte) proof with public signals:
-```json
-{
-  "income_above_threshold": true,
-  "income_band": 2,
-  "consistency_months": 6,
-  "proof_timestamp": 1735689600,
-  "source_hash": "0xabc123..."
-}
-```
-
----
-
-### 6.3 Algorand Smart Contract (PyTeal)
-
-Verifies proofs and manages credit state on-chain.
-
-**Contract: `income_verifier.py`**
-```python
-# Core verification logic (simplified)
-@app.external
-def verify_income_proof(
-    proof: abi.DynamicBytes,
-    public_signals: abi.DynamicBytes,
-    source_attestation: abi.DynamicBytes,
-) -> abi.Bool:
-    # 1. Verify ZK proof against published verification key
-    # 2. Check proof timestamp freshness (< 90 days)
-    # 3. Validate source attestation signature
-    # 4. Map income_band to credit tier
-    # 5. Write verified state to app storage
-    # 6. Emit verified event for lending protocols
-```
-
-**Global State Schema:**
-
-| Key | Type | Description |
-|-----|------|-------------|
-| `income_verified` | bool | Verification status |
-| `income_band` | uint | Tier 1 / 2 / 3 |
-| `credit_limit` | uint | Max loan in paisa |
-| `verified_at` | uint | Unix timestamp |
-| `reputation_score` | uint | Repayment track record |
-
-**Credit Tiers:**
-
-| Tier | Monthly Income | Credit Limit |
-|------|---------------|--------------|
-| Tier 1 | > ₹25,000 | ₹25,000 |
-| Tier 2 | > ₹40,000 | ₹50,000 |
-| Tier 3 | > ₹70,000 | ₹1,00,000 |
-
----
-
-### 6.4 Lending Interface
-
-Fintech platforms integrate via the **Acre SDK**.
-
-```typescript
-// SDK usage example
-import { Acre } from '@Acre/sdk';
-
-const client = new Acre({ network: 'algorand-mainnet' });
-
-// Check worker eligibility
-const eligibility = await client.getEligibility(workerWalletAddress);
-// Returns: { verified: true, creditLimit: 50000, band: 'tier_2' }
-
-// Issue loan using ASA
-const loan = await client.issueLoan({
-  borrower: workerWalletAddress,
-  amount: 30000,
-  currency: 'USDC',
-  termDays: 30,
-});
-```
-
-**Atomic Transfer ensures:**
-- Collateral locked + loan disbursed in one transaction group
-- No partial execution possible
-- Settlement is deterministic and instant
+### 9. Lender Verification Dashboard
+![verification](demo/lender-dashboard.png)
 
 ---
 
 ## 7. Why Algorand
 
 | Property | Benefit for Acre |
-|----------|---------------------|
+|:---|:---|
 | **Deterministic Execution** | Credit rules behave identically every time — no ordering surprises |
 | **Low Fees (~0.001 ALGO)** | Microloan issuance is economically viable at any ticket size |
 | **Atomic Transfers** | Collateral locking + loan disbursement in a single transaction group |
@@ -408,7 +218,7 @@ const loan = await client.issueLoan({
 Acre is designed from the ground up to align with India's **Digital Personal Data Protection (DPDP) Act, 2023**.
 
 | DPDP Principle | Acre Implementation |
-|----------------|------------------------|
+|:---|:---|
 | **Data Minimization** | Only income predicates (true/false conditions) are revealed — never raw transactions |
 | **Purpose Limitation** | Data used exclusively for credit eligibility; ZK circuit enforces scope |
 | **Storage Limitation** | No raw financial data stored anywhere in the system |
@@ -423,240 +233,121 @@ Acre is designed from the ground up to align with India's **Digital Personal Dat
 
 ---
 
-## 9. ZK Circuit Design
+## 9. Smart Contract Logic
 
-```
-┌──────────────────────────────────────────────────────────────────┐
-│                    Noir Circuit: income_range                     │
-├──────────────────────────────────────────────────────────────────┤
-│                                                                  │
-│  PRIVATE INPUTS              COMPUTATION           PUBLIC OUTPUT │
-│  ┌──────────────┐            ┌──────────┐          ┌──────────┐  │
-│  │ income[0..5] │───────────▶│ avg()    │─────────▶│ band: 2  │  │
-│  │ (6 months)   │            │ sum()    │          │          │  │
-│  │              │            │ count()  │          │ above_   │  │
-│  │ timestamps   │───────────▶│ window() │─────────▶│threshold │  │
-│  │ [0..5]       │            │          │          │ = true   │  │
-│  │              │            │ range    │          │          │  │
-│  │ source_sig   │───────────▶│ check()  │─────────▶│ source   │  │
-│  │              │            │          │          │ valid    │  │
-│  └──────────────┘            └──────────┘          └──────────┘  │
-│                                                                  │
-│  Proof size: ~200 bytes                                          │
-│  Verification cost: < 0.001 ALGO                                 │
-│  Generation time: < 2 seconds (client-side)                      │
-│                                                                  │
-└──────────────────────────────────────────────────────────────────┘
-```
+**App ID (Testnet):** `758797725`
+
+**Key Features:**
+- Local state per user (~70 bytes)
+- Only designated verifier can write
+- Permissionless read methods (`get_eligibility`, `get_full_profile`, etc.)
+- Replay protection via proof hash
+- Timestamp freshness checks
+
+See [`CONTRACT.md`](CONTRACT.md) for full specification.
 
 ---
 
-## 10. Smart Contract Logic
+## 10. Project Structure
 
-```
-┌──────────────────────────────────────────────────────────────────────────┐
-│               Income Verifier — Contract State Machine                    │
-└──────────────────────────────────────────────────────────────────────────┘
+This is a **multi-repo** project:
 
-  [Unverified]
-       │
-       │  verify_income_proof(proof, signals, attestation)
-       ▼
-  ┌──────────────────────────────────────┐
-  │ Check 1: ZK proof valid?             │──── FAIL ──▶ [Rejected]
-  │          (verify against vkey)       │
-  └──────────────────────────────────────┘
-       │ PASS
-       ▼
-  ┌──────────────────────────────────────┐
-  │ Check 2: Proof fresh?                │──── FAIL ──▶ [Expired]
-  │          (timestamp < 90 days)       │
-  └──────────────────────────────────────┘
-       │ PASS
-       ▼
-  ┌──────────────────────────────────────┐
-  │ Check 3: Source attestation valid?   │──── FAIL ──▶ [Untrusted Source]
-  │          (TLSNotary signature check) │
-  └──────────────────────────────────────┘
-       │ PASS
-       ▼
-  ┌──────────────────────────────────────┐
-  │ Map income_band → credit_tier        │
-  │ Write state to app storage           │
-  │ Emit IncomeVerified event            │
-  └──────────────────────────────────────┘
-       │
-       ▼
-  [Verified]
-       │
-       │  Lending protocol reads state
-       │  Issues loan via atomic transfer
-       ▼
-  [Loan Active]
-       │
-       │  Repayment recorded
-       ▼
-  [Reputation Updated]
-```
+- **`acre-web`** → Frontend (React + Vite) → [Link](https://github.com/somehowliving/acre-web)
+- **`acre`** → Node.js Express server
+- **`acre-contract`** → PyTeal smart contract → [Link](https://github.com/SomehowLiving/Acre/blob/main/contracts/acre_verification.py)
 
 ---
 
-## 11. Demo Flow
+## 11. Live Demo & Deployment
+
+- **Frontend:** [https://acre-web-three.vercel.app](https://acre-web-three.vercel.app/)
+- **Network:** Algorand Testnet
+- **Smart Contract:** App ID `758797725`
+
+### Environment Variables
+
+| Variable | Required | Description |
+|:---|:---:|:---|
+| `VITE_RECLAIM_APP_ID` | Yes | Reclaim app ID |
+| `VITE_RECLAIM_APP_SECRET` | Yes | Reclaim secret |
+| `VITE_RECLAIM_PROVIDER_ID` | Yes | Reclaim provider ID |
+| `VITE_BACKEND_VERIFY_URL` | Yes | Backend verify endpoint |
+| `VITE_ALGORAND_APP_ID` | Yes | Target Algorand app ID |
+| `VITE_ALGOD_SERVER` | Yes | Algod RPC URL |
+| `VITE_ALGOD_TOKEN` | No | Algod token (if required) |
+
+---
+
+## 12. Setup & Installation
 
 ### Prerequisites
-- Algorand wallet (Pera / Defly)
-- Test bank statement or simulated API response
-- Local Algorand node or Testnet access
+- Node.js v18+
+- Pera or Defly Wallet
+- Testnet ALGO in two accounts (Verifier + Testing)
 
-### Step-by-Step
-
-**Step 1 — Connect income source**
-```bash
-cd demo/
-python connect_income_source.py --source bank_statement --file sample_statement.pdf
-```
-Output: `attestation_blob.json`
-
-**Step 2 — Generate ZK proof**
-```bash
-cd circuits/
-nargo prove --input attestation_blob.json --threshold 40000 --months 6
-```
-Output: `proof.json` + `public_signals.json`
-
-**Step 3 — Submit to Algorand**
-```bash
-cd contracts/
-python submit_proof.py --proof proof.json --signals public_signals.json --network testnet
-```
-Output: Transaction ID + on-chain state
-
-**Step 4 — Verify eligibility**
-```bash
-python check_eligibility.py --wallet <your_wallet_address>
-```
-Output:
-```json
-{
-  "income_verified": true,
-  "income_band": "tier_2",
-  "credit_limit": 50000,
-  "verified_at": "2025-01-01T00:00:00Z"
-}
-```
-
-**Step 5 — Issue test loan**
-```bash
-python issue_loan.py --borrower <wallet> --amount 30000 --currency USDC
-```
-Output: Atomic transfer group TX ID + loan disbursed
-
----
-
-## 12. Project Structure
-
-```
-acre/
-│
-├── circuits/                        # Noir ZK circuits
-│   ├── income_range.nr              # Core income range prover
-│   ├── consistency_check.nr         # Consistency over N months
-│   └── Nargo.toml
-│
-├── contracts/                       # Algorand smart contracts
-│   ├── income_verifier.py           # PyTeal: main verification contract
-│   ├── lending_pool.py              # PyTeal: loan issuance and settlement
-│   ├── reputation_tracker.py        # PyTeal: on-chain credit history
-│   └── deploy.py
-│
-├── attestation/                     # Data attestation layer
-│   ├── tlsnotary_client.ts          # TLSNotary integration
-│   ├── bank_connector.ts            # Account Aggregator connector
-│   └── platform_connectors/
-│       ├── razorpay.ts
-│       └── stripe.ts
-│
-├── sdk/                             # Fintech integration SDK
-│   ├── verification_client.ts       # Main SDK entry point
-│   ├── types.ts
-│   └── examples/
-│       └── basic_integration.ts
-│
-├── demo/                            # Demo scripts and sample data
-│   ├── connect_income_source.py
-│   ├── check_eligibility.py
-│   ├── issue_loan.py
-│   └── sample_data/
-│       └── sample_statement.json
-│
-├── tests/
-│   ├── circuit_tests/
-│   ├── contract_tests/
-│   └── integration_tests/
-│
-├── docs/
-│   └── architecture.md
-│
-├── requirements.txt
-├── package.json
-└── README.md
-```
-
----
-
-## 13. Setup & Installation
-
-### Prerequisites
+### 1. Clone Repositories
 
 ```bash
-# Algorand tooling
-pip install algokit --break-system-packages
-pip install pyteal --break-system-packages
+git clone https://github.com/somehowliving/acre-web.git
+git clone https://github.com/somehowliving/acre.git
+```
 
-# Noir (ZK circuit compiler)
-curl -L https://raw.githubusercontent.com/noir-lang/noirup/main/install | bash
-noirup
+### 2. Frontend (`acre-web`)
 
-# Node.js (for SDK and attestation layer)
+```bash
+cd acre-web
 npm install
-```
-
-### Clone and configure
-
-```bash
-git clone https://github.com/somehowliving/acre
-cd acre
-
-pip install -r requirements.txt
 cp .env.example .env
-# Edit .env: set ALGORAND_NETWORK, ALGOD_TOKEN, etc.
 ```
 
-### Compile ZK circuits
+**Configure `.env`:**
+```env
+VITE_RECLAIM_APP_ID=your_app_id
+VITE_RECLAIM_APP_SECRET=your_secret
+VITE_RECLAIM_PROVIDER_ID=uber_provider_id
+VITE_BACKEND_VERIFY_URL=http://localhost:3001/verify-proof
+VITE_ALGORAND_APP_ID=758797725
+VITE_ALGOD_SERVER=https://testnet-api.algonode.cloud
+```
+
+**Run:**
+```bash
+npm run dev
+```
+
+### 3. Backend (`acre-backend`)
 
 ```bash
-cd circuits/
-nargo build
-nargo test
+cd ../acre
+npm install
+cp .env.example .env
 ```
 
-### Deploy smart contracts
+**Configure `.env`:**
+```env
+APP_ID=758797725
+ALGOD_SERVER=https://testnet-api.algonode.cloud
+VERIFIER_MNEMONIC=your_25_word_mnemonic_here
+ADMIN_MNEMONIC=your_admin_mnemonic_here
+```
 
+**Run:**
 ```bash
-cd contracts/
-algokit deploy --network testnet
+npm start
 ```
 
-### Run the demo
+### Quick Start Summary
 
-```bash
-cd demo/
-python run_demo.py --mode full
-```
+1. Start **Backend** (`npm start`)
+2. Start **Frontend** (`npm run dev`)
+3. Open `http://localhost:8080`
+4. Connect wallet → Verify Income → Scan QR with phone
+
+**Live Demo:** [acre-web-three.vercel.app](https://acre-web-three.vercel.app/)
 
 ---
 
-## 14. Use Cases
+## 13. Use Cases
 
 ### Gig Worker Microloans
 A Swiggy delivery partner with 8 months of consistent ₹35,000/month earnings generates a ZK proof, submits it, and receives a ₹25,000 working capital loan — without ever sharing a bank statement with the lender.
@@ -672,10 +363,10 @@ DeFi lending protocols on Algorand use the verified income signal as an undercol
 
 ---
 
-## 15. Roadmap
+## 14. Roadmap
 
 | Phase | Timeline | Milestone |
-|-------|----------|-----------|
+|:---|:---|:---|
 | **Phase 1 — Hackathon MVP** | Current | Bank AA connector, Noir circuit, Algorand contract, basic demo |
 | **Phase 2 — Platform APIs** | Month 1–2 | Uber, Swiggy, Razorpay connectors; SDK alpha |
 | **Phase 3 — Pilot** | Month 3–4 | Integration with 1 NBFC/fintech partner; 100 test users |
@@ -684,7 +375,7 @@ DeFi lending protocols on Algorand use the verified income signal as an undercol
 
 ---
 
-## 16. References
+## 15. References
 
 1. NITI Aayog — *India's Booming Gig and Platform Economy* (2022)
 2. World Bank — *SME Finance Overview: Credit Constraints in Emerging Markets*
@@ -699,12 +390,12 @@ DeFi lending protocols on Algorand use the verified income signal as an undercol
 
 ---
 
-## 17. Team
+## 16. Team
 
 **Team:** [zkFarmers]
 
 | Member | Role |
-|--------|------|
+|:---|:---|
 | Nidhi Prajapati | Blockchain & ZK Engineer |
 
 ---
@@ -712,7 +403,7 @@ DeFi lending protocols on Algorand use the verified income signal as an undercol
 ### Track Alignment
 
 | Track | How Acre Fits |
-|-------|------------------|
+|:---|:---|
 | **Future of Finance** | Privacy-preserving lending infrastructure for India's gig economy |
 | **DPDP & RegTech** | Built-in DPDP Act compliance via data minimization and ZK proofs |
 
