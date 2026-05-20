@@ -908,6 +908,54 @@ function identitySessionResponse(session, algoplonk = null) {
   };
 }
 
+function tierLabelFromBlueScore(score) {
+  if (score >= 800) return 'Blue Prime';
+  if (score >= 650) return 'Blue Plus';
+  return 'Blue Basic';
+}
+
+function loanLimitFromBlueScore(score) {
+  if (score >= 800) return 50000;
+  if (score >= 650) return 35000;
+  return 20000;
+}
+
+function scoreBucketsFromFeatures(features = {}) {
+  const income = Number(features.monthlyIncome || 0);
+  const consistencyMonths = Number(features.consistencyMonths || 0);
+  const rating = Number(features.rating || 0);
+  const activity = String(features.activityLevel || 'low').toLowerCase();
+
+  const incomeBucket = income < 20000 ? '<20k' : income <= 40000 ? '20k-40k' : '>40k';
+  const consistencyBucket = consistencyMonths < 3 ? '<3m' : consistencyMonths <= 6 ? '3m-6m' : '>6m';
+  const ratingBucket = rating < 4.0 ? '<4.0' : rating <= 4.5 ? '4.0-4.5' : '>4.5';
+  const activityBucket = activity === 'high' ? 'high' : activity === 'medium' ? 'medium' : 'low';
+
+  const breakdown = {
+    income: { bucket: incomeBucket, points: incomeBucket === '<20k' ? 50 : incomeBucket === '20k-40k' ? 120 : 200 },
+    consistency: { bucket: consistencyBucket, points: consistencyBucket === '<3m' ? 30 : consistencyBucket === '3m-6m' ? 100 : 180 },
+    rating: { bucket: ratingBucket, points: ratingBucket === '<4.0' ? 40 : ratingBucket === '4.0-4.5' ? 100 : 160 },
+    activity: { bucket: activityBucket, points: activityBucket === 'low' ? 50 : activityBucket === 'medium' ? 100 : 150 },
+  };
+
+  const rawTotal = breakdown.income.points + breakdown.consistency.points + breakdown.rating.points + breakdown.activity.points;
+  const score = Math.min(1000, Math.round((rawTotal / 690) * 1000));
+  const tier = tierLabelFromBlueScore(score);
+  const loanEligibility = loanLimitFromBlueScore(score);
+
+  return { score, tier, loanEligibility, breakdown };
+}
+
+function mockFeaturesFromAddress(address) {
+  const seed = parseInt(sha256Hex(address).slice(0, 8), 16);
+  return {
+    monthlyIncome: 16000 + (seed % 50000),
+    consistencyMonths: 1 + (seed % 18),
+    rating: Number((3.8 + ((seed % 13) / 10)).toFixed(1)),
+    activityLevel: ['low', 'medium', 'high'][seed % 3],
+  };
+}
+
 app.get('/api/user/:address/eligibility', async (req, res) => {
   try {
     const { address } = req.params;
@@ -1029,6 +1077,147 @@ app.get('/api/proof-count', async (_req, res) => {
     return res.json({ success: true, proofCount });
   } catch (error) {
     return res.status(500).json({ success: false, message: error?.message || 'Failed to fetch proof count' });
+  }
+});
+
+app.get('/api/blue-score/:address', async (req, res) => {
+  try {
+    const { address } = req.params;
+    if (!algosdk.isValidAddress(address)) {
+      return res.status(400).json({ success: false, message: 'Invalid Algorand address' });
+    }
+    const features = mockFeaturesFromAddress(address);
+    const result = scoreBucketsFromFeatures(features);
+    return res.json({
+      success: true,
+      address,
+      verifiedKyc: true,
+      score: result.score,
+      tier: result.tier,
+      loanEligibility: result.loanEligibility,
+      breakdown: result.breakdown,
+      features,
+      scoreFreshnessDays: 2,
+      proofExpiresInDays: 28,
+      message: 'Acre is a privacy-preserving credit bureau for gig workers.',
+    });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error?.message || 'Failed to compute blue score' });
+  }
+});
+
+app.post('/api/blue-score/simulate', async (req, res) => {
+  try {
+    const { monthlyIncome, consistencyMonths, rating, activityLevel } = req.body || {};
+    const result = scoreBucketsFromFeatures({ monthlyIncome, consistencyMonths, rating, activityLevel });
+    return res.json({
+      success: true,
+      simulationOnly: true,
+      score: result.score,
+      tier: result.tier,
+      loanEligibility: result.loanEligibility,
+      breakdown: result.breakdown,
+      coachingMessage:
+        activityLevel === 'high'
+          ? 'If you sustain high activity for 3 months, you can unlock stronger offers.'
+          : `If you work 5 more days/month, you may unlock ₹${loanLimitFromBlueScore(Math.min(1000, result.score + 80)).toLocaleString('en-IN')} instead of ₹${result.loanEligibility.toLocaleString('en-IN')}.`,
+      disclaimer: 'Preview only. Actual eligibility requires fresh ZK proof submission.',
+    });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error?.message || 'Failed to simulate blue score' });
+  }
+});
+
+app.post('/api/lender/config/simulate', async (req, res) => {
+  try {
+    const {
+      minIncome = 25000,
+      minConsistencyMonths = 4,
+      minRating = 4.5,
+      incomeWeight = 0.5,
+      reputationWeight = 0.5,
+    } = req.body || {};
+    const approvedUsers = Math.max(12, Math.round(180 * (1 - Math.min(0.85, (Number(minIncome) - 15000) / 70000))));
+    const avgLoanTicketSize = Math.round(18000 + Number(incomeWeight) * 18000 + Number(reputationWeight) * 14000);
+    const riskEstimate = Number((0.28 - Number(reputationWeight) * 0.1 + Number(incomeWeight) * 0.03).toFixed(3));
+
+    return res.json({
+      success: true,
+      assumptions: { minIncome, minConsistencyMonths, minRating, incomeWeight, reputationWeight },
+      outputs: { approvedUsers, avgLoanTicketSize, riskEstimate },
+      notes: 'Mocked cohort simulation for hackathon demo.',
+    });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error?.message || 'Failed to simulate lender config' });
+  }
+});
+
+app.get('/api/passport/:address', async (req, res) => {
+  try {
+    const { address } = req.params;
+    if (!algosdk.isValidAddress(address)) {
+      return res.status(400).json({ success: false, message: 'Invalid Algorand address' });
+    }
+    const features = mockFeaturesFromAddress(address);
+    const score = scoreBucketsFromFeatures(features);
+    return res.json({
+      success: true,
+      address,
+      passport: {
+        identity: {
+          kycVerified: true,
+          sameIdentityAcrossSessions: true,
+          piiExposed: false,
+          identityBonded: true,
+        },
+        blueScore: {
+          score: score.score,
+          tier: score.tier,
+          breakdown: score.breakdown,
+        },
+        trust: {
+          fraudRisk: 'Low',
+          scoreVerifiedDaysAgo: 2,
+          reputationUpdateCadence: 'quarterly',
+          incomeProofExpiryDays: 30,
+        },
+      },
+      pipeline: [
+        'Identity Proof (DigiLocker)',
+        'Income Proof (Reclaim ZK)',
+        'Reputation Proof (Platform ratings)',
+        'Feature Extraction',
+        'Blue Score (Scorecard)',
+        'Loan Eligibility / Simulation',
+      ],
+    });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error?.message || 'Failed to fetch passport' });
+  }
+});
+
+app.get('/api/growth/:address', async (req, res) => {
+  try {
+    const { address } = req.params;
+    if (!algosdk.isValidAddress(address)) {
+      return res.status(400).json({ success: false, message: 'Invalid Algorand address' });
+    }
+    return res.json({
+      success: true,
+      address,
+      skills: ['2-wheeler delivery', 'customer service'],
+      recommendations: [
+        'Top earners in your zone work 6-9 PM.',
+        'Complete Swiggy Gold to target +₹4,000/month.',
+        'Sunday shift mix suggests 23% better earnings on Swiggy vs Uber.',
+      ],
+      quests: [
+        { id: 'consistency_champion', title: 'Consistency Champion', progressMonths: 0, targetMonths: 3, reward: 'Unlock ₹35k at 11% APR (vs 16%)' },
+        { id: 'prime_run', title: 'Prime Run', progressMonths: 1, targetMonths: 3, reward: 'Blue Prime fast-track review' },
+      ],
+    });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error?.message || 'Failed to fetch growth recommendations' });
   }
 });
 
