@@ -924,26 +924,86 @@ function scoreBucketsFromFeatures(features = {}) {
   const income = Number(features.monthlyIncome || 0);
   const consistencyMonths = Number(features.consistencyMonths || 0);
   const rating = Number(features.rating || 0);
-  const activity = String(features.activityLevel || 'low').toLowerCase();
+  const activityDaysPerMonth = Number(features.activityDaysPerMonth || 0);
 
-  const incomeBucket = income < 20000 ? '<20k' : income <= 40000 ? '20k-40k' : '>40k';
-  const consistencyBucket = consistencyMonths < 3 ? '<3m' : consistencyMonths <= 6 ? '3m-6m' : '>6m';
-  const ratingBucket = rating < 4.0 ? '<4.0' : rating <= 4.5 ? '4.0-4.5' : '>4.5';
-  const activityBucket = activity === 'high' ? 'high' : activity === 'medium' ? 'medium' : 'low';
+  const clamp01 = (v) => Math.max(0, Math.min(1, v));
+  const nIncome = clamp01((income - 10000) / 70000);
+  const nConsistency = clamp01((consistencyMonths - 1) / 23);
+  const nRating = clamp01((rating - 3.5) / 1.5);
+  const nActivity = clamp01((activityDaysPerMonth - 5) / 25);
+
+  const incomePoints = nIncome < 0.25 ? 50 : nIncome < 0.6 ? 120 : 200;
+  const consistencyPoints = nConsistency < 0.15 ? 30 : nConsistency < 0.35 ? 100 : 180;
+  const ratingPoints = nRating < 0.33 ? 40 : nRating < 0.67 ? 100 : 160;
+  const activityPoints = nActivity < 0.33 ? 50 : nActivity < 0.67 ? 100 : 150;
 
   const breakdown = {
-    income: { bucket: incomeBucket, points: incomeBucket === '<20k' ? 50 : incomeBucket === '20k-40k' ? 120 : 200 },
-    consistency: { bucket: consistencyBucket, points: consistencyBucket === '<3m' ? 30 : consistencyBucket === '3m-6m' ? 100 : 180 },
-    rating: { bucket: ratingBucket, points: ratingBucket === '<4.0' ? 40 : ratingBucket === '4.0-4.5' ? 100 : 160 },
-    activity: { bucket: activityBucket, points: activityBucket === 'low' ? 50 : activityBucket === 'medium' ? 100 : 150 },
+    income: { bucket: nIncome < 0.25 ? '<₹27.5k' : nIncome < 0.6 ? '₹27.5k–₹52k' : '>₹52k', points: incomePoints },
+    consistency: { bucket: nConsistency < 0.15 ? '<4.5 months' : nConsistency < 0.35 ? '4.5–9 months' : '>9 months', points: consistencyPoints },
+    rating: { bucket: nRating < 0.33 ? '<4.0' : nRating < 0.67 ? '4.0–4.5' : '>4.5', points: ratingPoints },
+    activity: { bucket: nActivity < 0.33 ? '<13 days/mo' : nActivity < 0.67 ? '13–22 days/mo' : '>22 days/mo', points: activityPoints },
   };
 
-  const rawTotal = breakdown.income.points + breakdown.consistency.points + breakdown.rating.points + breakdown.activity.points;
-  const score = Math.min(1000, Math.round((rawTotal / 690) * 1000));
-  const tier = tierLabelFromBlueScore(score);
-  const loanEligibility = loanLimitFromBlueScore(score);
+  const weights = { income: 0.3, consistency: 0.22, rating: 0.18, activity: 0.18, creditRange: 0.12 };
+  const creditLimit = Number(features.creditLimit || 0);
+  const nCredit = clamp01((creditLimit - 10000) / 90000);
+  const creditRangePoints = nCredit < 0.33 ? 60 : nCredit < 0.67 ? 120 : 180;
+  const rawScore =
+    incomePoints * weights.income +
+    consistencyPoints * weights.consistency +
+    ratingPoints * weights.rating +
+    activityPoints * weights.activity +
+    creditRangePoints * weights.creditRange;
+  const maxPossible = 200 * weights.income + 180 * weights.consistency + 160 * weights.rating + 150 * weights.activity + 180 * weights.creditRange;
+  const score = Math.round((rawScore / maxPossible) * 1000);
+  const tier = score >= 800 ? 'Blue Prime' : score >= 650 ? 'Blue Plus' : score >= 400 ? 'Blue Basic' : 'No Tier';
 
-  return { score, tier, loanEligibility, breakdown };
+  const multiplier = tier === 'Blue Prime' ? 1.5 : tier === 'Blue Plus' ? 1.0 : tier === 'Blue Basic' ? 0.5 : 0;
+  const cap = tier === 'Blue Prime' ? 100000 : tier === 'Blue Plus' ? 50000 : tier === 'Blue Basic' ? 20000 : 0;
+  const loanEligibility = Math.min(Math.floor((income * multiplier) / 1000) * 1000, cap);
+  return {
+    score,
+    tier,
+    loanEligibility,
+    breakdown: {
+      ...breakdown,
+      creditRange: {
+        bucket: nCredit < 0.33 ? '₹10k–₹39k' : nCredit < 0.67 ? '₹40k–₹69k' : '₹70k+',
+        points: creditRangePoints,
+      },
+    },
+    normalized: { income: nIncome, consistency: nConsistency, rating: nRating, activity: nActivity, creditRange: nCredit },
+  };
+}
+
+async function getOnchainBaseline(address) {
+  try {
+    const [creditLimitRaw, eligibilityRaw, profileRaw] = await Promise.all([
+      callReadMethod({ methodName: 'get_credit_limit', methodArgs: [address], appAccounts: [address] }),
+      callReadMethod({ methodName: 'get_eligibility', methodArgs: [address], appAccounts: [address] }),
+      callReadMethod({ methodName: 'get_full_profile', methodArgs: [address], appAccounts: [address] }),
+    ]);
+    const creditLimit = Number(creditLimitRaw || 0);
+    const eligibility = Number(eligibilityRaw || 0);
+    const [verified, tier, _cl, _ts, riderCount, riderRating] = Array.isArray(profileRaw) ? profileRaw : [];
+    return {
+      creditLimit,
+      eligibility,
+      verified: Number(verified) === 1,
+      tier: Number(tier || 0),
+      riderCount: Number(riderCount || 0),
+      riderRating: Number(riderRating || 0) / 100,
+    };
+  } catch {
+    return {
+      creditLimit: 0,
+      eligibility: 0,
+      verified: false,
+      tier: 0,
+      riderCount: 0,
+      riderRating: 0,
+    };
+  }
 }
 
 function mockFeaturesFromAddress(address) {
@@ -952,7 +1012,7 @@ function mockFeaturesFromAddress(address) {
     monthlyIncome: 16000 + (seed % 50000),
     consistencyMonths: 1 + (seed % 18),
     rating: Number((3.8 + ((seed % 13) / 10)).toFixed(1)),
-    activityLevel: ['low', 'medium', 'high'][seed % 3],
+    activityDaysPerMonth: 8 + (seed % 20),
   };
 }
 
@@ -1086,19 +1146,28 @@ app.get('/api/blue-score/:address', async (req, res) => {
     if (!algosdk.isValidAddress(address)) {
       return res.status(400).json({ success: false, message: 'Invalid Algorand address' });
     }
-    const features = mockFeaturesFromAddress(address);
-    const result = scoreBucketsFromFeatures(features);
+    const onchain = await getOnchainBaseline(address);
+    const features = {
+      ...mockFeaturesFromAddress(address),
+      consistencyMonths: onchain.riderCount > 0 ? Math.max(1, Math.min(24, Math.round(onchain.riderCount / 250))) : mockFeaturesFromAddress(address).consistencyMonths,
+      rating: onchain.riderRating > 0 ? onchain.riderRating : mockFeaturesFromAddress(address).rating,
+    };
+    const result = scoreBucketsFromFeatures({ ...features, creditLimit: onchain.creditLimit || onchain.eligibility || 0 });
+    const anchoredEligibility = onchain.creditLimit > 0 ? onchain.creditLimit : (onchain.eligibility > 0 ? onchain.eligibility : result.loanEligibility);
+    const apr = result.tier === 'Blue Prime' ? '9-11' : result.tier === 'Blue Plus' ? '12-14' : result.tier === 'Blue Basic' ? '15-18' : null;
     return res.json({
       success: true,
       address,
       verifiedKyc: true,
       score: result.score,
       tier: result.tier,
-      loanEligibility: result.loanEligibility,
+      loanEligibility: anchoredEligibility,
+      apr,
       breakdown: result.breakdown,
       features,
       scoreFreshnessDays: 2,
       proofExpiresInDays: 28,
+      onchain,
       message: 'Acre is a privacy-preserving credit bureau for gig workers.',
     });
   } catch (error) {
@@ -1108,19 +1177,28 @@ app.get('/api/blue-score/:address', async (req, res) => {
 
 app.post('/api/blue-score/simulate', async (req, res) => {
   try {
-    const { monthlyIncome, consistencyMonths, rating, activityLevel } = req.body || {};
-    const result = scoreBucketsFromFeatures({ monthlyIncome, consistencyMonths, rating, activityLevel });
+    const { monthlyIncome, consistencyMonths, rating, activityDaysPerMonth, currentCreditLimit = 0, currentScore = 0, currentTier = 'Blue Basic' } = req.body || {};
+    const result = scoreBucketsFromFeatures({ monthlyIncome, consistencyMonths, rating, activityDaysPerMonth, creditLimit: currentCreditLimit });
+    const apr = result.tier === 'Blue Prime' ? '9-11' : result.tier === 'Blue Plus' ? '12-14' : result.tier === 'Blue Basic' ? '15-18' : null;
+    const delta = result.score - Number(currentScore || 0);
+    const nextTier = currentTier === 'Blue Basic' ? 'Blue Plus' : currentTier === 'Blue Plus' ? 'Blue Prime' : 'Blue Prime';
+    let coachingMessage = 'No change - try adjusting multiple factors';
+    if (delta > 0 && result.tier !== currentTier) {
+      coachingMessage = `Unlock ${result.tier}: ₹${result.loanEligibility.toLocaleString('en-IN')} at ${apr}% APR`;
+    } else if (delta > 0) {
+      coachingMessage = `+${delta} points closer to ${nextTier}`;
+    } else if (delta < 0) {
+      coachingMessage = `-${Math.abs(delta)} points - maintain consistency`;
+    }
     return res.json({
       success: true,
       simulationOnly: true,
       score: result.score,
       tier: result.tier,
       loanEligibility: result.loanEligibility,
+      apr,
       breakdown: result.breakdown,
-      coachingMessage:
-        activityLevel === 'high'
-          ? 'If you sustain high activity for 3 months, you can unlock stronger offers.'
-          : `If you work 5 more days/month, you may unlock ₹${loanLimitFromBlueScore(Math.min(1000, result.score + 80)).toLocaleString('en-IN')} instead of ₹${result.loanEligibility.toLocaleString('en-IN')}.`,
+      coachingMessage,
       disclaimer: 'Preview only. Actual eligibility requires fresh ZK proof submission.',
     });
   } catch (error) {
@@ -1158,6 +1236,7 @@ app.get('/api/passport/:address', async (req, res) => {
     if (!algosdk.isValidAddress(address)) {
       return res.status(400).json({ success: false, message: 'Invalid Algorand address' });
     }
+    const onchain = await getOnchainBaseline(address);
     const features = mockFeaturesFromAddress(address);
     const score = scoreBucketsFromFeatures(features);
     return res.json({
@@ -1175,6 +1254,12 @@ app.get('/api/passport/:address', async (req, res) => {
           tier: score.tier,
           breakdown: score.breakdown,
         },
+        finance: {
+          currentCreditLimit: onchain.creditLimit,
+          currentEligibility: onchain.eligibility,
+          riderCount: onchain.riderCount,
+          riderRating: onchain.riderRating,
+        },
         trust: {
           fraudRisk: 'Low',
           scoreVerifiedDaysAgo: 2,
@@ -1190,6 +1275,13 @@ app.get('/api/passport/:address', async (req, res) => {
         'Blue Score (Scorecard)',
         'Loan Eligibility / Simulation',
       ],
+      journey: [
+        { platform: 'Uber Driver', tenure: 'Months 1-8', incomeBand: '₹22k-₹28k', rating: String(Math.max(4.2, (onchain.riderRating || 4.6)).toFixed(1)), completionRate: '88', growthFromPrevious: null },
+        { platform: 'Swiggy Delivery', tenure: 'Months 9-18', incomeBand: '₹32k-₹38k', rating: String(Math.max(4.4, (onchain.riderRating || 4.8)).toFixed(1)), completionRate: '96', growthFromPrevious: '45' },
+      ],
+      totalTenureMonths: Math.max(6, Math.round((onchain.riderCount || 1200) / 120)),
+      totalGrowth: '+45%',
+      reliability: onchain.riderCount > 1500 ? 'Zero gaps >7 days' : 'Improving consistency',
     });
   } catch (error) {
     return res.status(500).json({ success: false, message: error?.message || 'Failed to fetch passport' });
@@ -1202,18 +1294,20 @@ app.get('/api/growth/:address', async (req, res) => {
     if (!algosdk.isValidAddress(address)) {
       return res.status(400).json({ success: false, message: 'Invalid Algorand address' });
     }
+    const onchain = await getOnchainBaseline(address);
+    const targetTopup = onchain.creditLimit > 0 ? Math.round(onchain.creditLimit * 0.4) : 15000;
     return res.json({
       success: true,
       address,
       skills: ['2-wheeler delivery', 'customer service'],
       recommendations: [
-        'Top earners in your zone work 6-9 PM.',
-        'Complete Swiggy Gold to target +₹4,000/month.',
-        'Sunday shift mix suggests 23% better earnings on Swiggy vs Uber.',
+        `Top earners in your zone work 6-9 PM. This can help increase your eligible limit by ~₹${targetTopup.toLocaleString('en-IN')}.`,
+        `Complete Swiggy Gold to target +₹4,000/month and improve credit line from ₹${(onchain.creditLimit || 10000).toLocaleString('en-IN')}.`,
+        `With rider rating ${onchain.riderRating ? onchain.riderRating.toFixed(2) : 'N/A'}, focus on weekend consistency for better terms.`,
       ],
       quests: [
-        { id: 'consistency_champion', title: 'Consistency Champion', progressMonths: 0, targetMonths: 3, reward: 'Unlock ₹35k at 11% APR (vs 16%)' },
-        { id: 'prime_run', title: 'Prime Run', progressMonths: 1, targetMonths: 3, reward: 'Blue Prime fast-track review' },
+        { id: 'consistency_champion', title: 'Consistency Champion', progressMonths: Math.min(2, Math.floor((onchain.riderCount || 0) / 800)), targetMonths: 3, reward: `Unlock ₹${((onchain.creditLimit || 10000) + targetTopup).toLocaleString('en-IN')} at 11% APR` },
+        { id: 'prime_run', title: 'Prime Run', progressMonths: onchain.riderRating >= 4.5 ? 2 : 1, targetMonths: 3, reward: 'Blue Prime fast-track review' },
       ],
     });
   } catch (error) {
