@@ -56,12 +56,62 @@
           "type": "string",
           "name": "platform",
           "desc": "\"uber\", \"lyft\", etc."
+        },
+        {
+          "type": "uint16",
+          "name": "score",
+          "desc": "Blue Score, 0-1000"
+        },
+        {
+          "type": "uint8",
+          "name": "income_bucket",
+          "desc": "1=<20k, 2=20-35k, 3=35-50k, 4=>50k"
+        },
+        {
+          "type": "uint8",
+          "name": "tenure_bucket",
+          "desc": "1=<6mo, 2=6-12mo, 3=12-24mo, 4=>24mo"
+        },
+        {
+          "type": "uint8",
+          "name": "completion_bucket",
+          "desc": "1=<85%, 2=85-92%, 3=92-97%, 4=>97%"
+        },
+        {
+          "type": "uint8",
+          "name": "rating_bucket",
+          "desc": "1=<4.0, 2=4.0-4.5, 3=4.5-4.8, 4=>4.8"
+        },
+        {
+          "type": "string",
+          "name": "source",
+          "desc": "\"reclaim\" or \"fallback\""
+        },
+        {
+          "type": "uint8",
+          "name": "plausibility_flags",
+          "desc": "bitmask, 0 means clean"
+        },
+        {
+          "type": "uint64",
+          "name": "monthly_earnings",
+          "desc": "monthly earnings in rupees"
+        },
+        {
+          "type": "uint64",
+          "name": "tenure_months",
+          "desc": "actual platform tenure in months"
+        },
+        {
+          "type": "uint64",
+          "name": "completion_rate",
+          "desc": "completion rate * 100 (9600 = 96%)"
         }
       ],
       "returns": {
         "type": "void"
       },
-      "desc": "Store income verification data from Reclaim proof."
+      "desc": "Store income verification data and the full Blue Score audit record."
     },
     {
       "name": "get_eligibility",
@@ -124,9 +174,61 @@
         }
       ],
       "returns": {
-        "type": "(uint8,uint8,uint64,uint64,uint64,uint64,string)"
+        "type": "(uint8,uint8,uint64,uint64,uint64,uint64,string,uint16,uint64,string,uint8,uint64,uint64,uint64)"
       },
-      "desc": "Get all verification details at once.\nReturns tuple: (verified, tier, limit, timestamp, rides, rating, platform)"
+      "desc": "Get all verification details at once.\nReturns tuple: (verified, tier, limit, timestamp, rides, rating, platform,  score, buckets, source, plausibility_flags, monthly_earnings,  tenure_months, completion_rate)"
+    },
+    {
+      "name": "get_score",
+      "args": [
+        {
+          "type": "address",
+          "name": "user"
+        }
+      ],
+      "returns": {
+        "type": "uint16"
+      },
+      "desc": "Get Blue Score (0-1000). Returns 0 if not verified."
+    },
+    {
+      "name": "get_score_breakdown",
+      "args": [
+        {
+          "type": "address",
+          "name": "user"
+        }
+      ],
+      "returns": {
+        "type": "(uint8,uint8,uint8,uint8)"
+      },
+      "desc": "Get score buckets: income, tenure, completion, rating."
+    },
+    {
+      "name": "get_source",
+      "args": [
+        {
+          "type": "address",
+          "name": "user"
+        }
+      ],
+      "returns": {
+        "type": "string"
+      },
+      "desc": "Get verification source: reclaim, fallback, onchain_derived, etc."
+    },
+    {
+      "name": "has_plausibility_issues",
+      "args": [
+        {
+          "type": "address",
+          "name": "user"
+        }
+      ],
+      "returns": {
+        "type": "uint8"
+      },
+      "desc": "Returns 1 if plausibility flags > 0."
     },
     {
       "name": "get_proof_hash",

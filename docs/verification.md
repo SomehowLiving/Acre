@@ -138,14 +138,14 @@ DigiLocker session resolved
          ▼
   callVerifyIncomeOnChain():
   → ABI call to AcreVerification contract
-  → writes to user's local state (8 slots)
+  → writes to user's local state
 ```
 
 ---
 
 ## On-Chain Storage — AcreVerification Contract
 
-ACRE's PyTeal contract (`acre_verification.py`, deployed on Algorand TestNet) stores the verification outcome in the user's **local state** — 8 key-value slots, written only when the backend's `verify_income` ABI call is accepted.
+ACRE's Algorand contract (`acre_verification.py`, deployed on Algorand TestNet as App ID `764223486`) stores the verification outcome in the user's **local state**. It is written only when the backend's `verify_income` ABI call is accepted.
 
 | Slot key | Type | Value |
 |---|---|---|
@@ -157,6 +157,13 @@ ACRE's PyTeal contract (`acre_verification.py`, deployed on Algorand TestNet) st
 | `rc` | uint64 | Total platform rides/orders |
 | `rr` | uint64 | Rating × 100 (e.g., `485` = 4.85★) |
 | `p` | string | Platform name (`"uber"`, `"swiggy"`) |
+| `sc` | uint64 | Blue Score |
+| `bk` | uint64 | Packed score metric buckets |
+| `src` | string | Proof source label |
+| `pf` | uint64 | Scoring policy flags |
+| `me` | uint64 | Monthly earnings used for scoring |
+| `tm` | uint64 | Tenure in months |
+| `cr` | uint64 | Completion rate × 100 |
 
 **Write guard:** The contract checks `Txn.sender() == App.globalGet("verifier")` — only ACRE's backend account can write. Users cannot manipulate their own local state.
 

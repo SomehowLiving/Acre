@@ -8,8 +8,13 @@ import './App.css'
 type VerifyResponse = {
   success: boolean
   tier: number
+  contractTier?: number
   creditLimit: number
   txId: string
+  score?: number
+  blueScoreTier?: string
+  apr?: string
+  reason?: string
   message?: string
 }
 
@@ -17,12 +22,26 @@ type ProofPayload = unknown
 
 type Profile = {
   verified: boolean
-  tier: string
-  creditLimit: string
-  timestamp: string
-  riderCount: string
-  riderRating: string
+  tier: number
+  creditLimit: number
+  timestamp: number
+  riderCount: number
+  riderRating: number
   platform: string
+  score: number
+  buckets: number
+  bucketBreakdown?: {
+    incomeBucket: number
+    tenureBucket: number
+    completionBucket: number
+    ratingBucket: number
+  }
+  source?: string
+  plausibilityFlags: number
+  monthlyEarnings: number
+  tenureMonths: number
+  completionRate: number
+  completionRateRaw?: number
 }
 
 type WalletTxnSigner = (txns: algosdk.Transaction[]) => Promise<Uint8Array[]>
@@ -318,10 +337,24 @@ function App() {
         <div className="acre-stat-grid">
           <div className="acre-stat"><div className="acre-label">Verified</div><div>{verified === null ? '-' : verified ? 'Yes' : 'No'}</div></div>
           <div className="acre-stat"><div className="acre-label">Tier</div><div>{profile?.tier ?? '-'}</div></div>
-          <div className="acre-stat"><div className="acre-label">Credit Limit</div><div>{profile?.creditLimit ?? '0'}</div></div>
+          <div className="acre-stat"><div className="acre-label">Credit Limit</div><div>{profile?.creditLimit?.toLocaleString('en-IN') ?? '0'}</div></div>
+          <div className="acre-stat"><div className="acre-label">Blue Score</div><div>{profile?.score ?? verifyResult?.score ?? '-'}</div></div>
           <div className="acre-stat"><div className="acre-label">Platform</div><div>{profile?.platform ?? '-'}</div></div>
           <div className="acre-stat"><div className="acre-label">Rider Count</div><div>{profile?.riderCount ?? '-'}</div></div>
-          <div className="acre-stat"><div className="acre-label">Rider Rating</div><div>{profile?.riderRating ?? '-'}</div></div>
+          <div className="acre-stat"><div className="acre-label">Rider Rating</div><div>{profile?.riderRating?.toFixed(2) ?? '-'}</div></div>
+          <div className="acre-stat"><div className="acre-label">Monthly Earnings</div><div>{profile?.monthlyEarnings?.toLocaleString('en-IN') ?? '-'}</div></div>
+          <div className="acre-stat"><div className="acre-label">Tenure</div><div>{profile ? `${profile.tenureMonths} mo` : '-'}</div></div>
+          <div className="acre-stat"><div className="acre-label">Completion</div><div>{profile ? `${profile.completionRate}%` : '-'}</div></div>
+          <div className="acre-stat"><div className="acre-label">Source</div><div>{profile?.source ?? '-'}</div></div>
+          <div className="acre-stat"><div className="acre-label">Flags</div><div>{profile?.plausibilityFlags ?? '-'}</div></div>
+          <div className="acre-stat">
+            <div className="acre-label">Buckets</div>
+            <div>
+              {profile?.bucketBreakdown
+                ? `${profile.bucketBreakdown.incomeBucket}/${profile.bucketBreakdown.tenureBucket}/${profile.bucketBreakdown.completionBucket}/${profile.bucketBreakdown.ratingBucket}`
+                : '-'}
+            </div>
+          </div>
         </div>
       </div>
 

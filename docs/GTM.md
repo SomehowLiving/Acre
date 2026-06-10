@@ -28,7 +28,7 @@ Integrate Acre SDK into the lender's loan funnel. Flow: Applicant → "Verify wi
 Launch **Acre Lender Console** (no-code config panel) + SDK. Pre-built templates: Microloan, BNPL, Two-Wheeler Lease. Pricing: ₹25k–₹50k config fee; ₹30–₹80 per verification; ₹50k/mo enterprise SaaS.
 
 **Phase 3 — B2B2C Empowerment (Months 6–9):**
-Workers approved via Lender A unlock **Work Journey Dashboard** — ZK-verified career timeline, explainable Blue Score breakdown, and "What-If" simulator (*"Work 2 more Sundays → unlock Prime tier → ₹50k at 11%"*). Premium tier: ₹99/mo for multi-platform aggregation.
+Workers approved via Lender A unlock **Work Journey Dashboard** — ZK-verified career timeline, explainable Blue Score breakdown, and personalized credit-readiness guidance. Premium tier: ₹99/mo for multi-platform aggregation.
 
 **Phase 4 — Ecosystem (Months 9–12):**
 Partner marketplace (Rentomojo, Acko, Upgrad), RBI Sandbox application, and SEA expansion (Philippines, Indonesia).
@@ -45,7 +45,7 @@ Partner marketplace (Rentomojo, Acko, Upgrad), RBI Sandbox application, and SEA 
 | **Per-Verification API** | ₹40–₹80 per applicant | 1 |
 | **Origination Success Fee** | 1.5–2.5% on disbursed value | 1 |
 | **SaaS Subscription** | ₹50k/mo unlimited + support | 2 |
-| **Worker Premium** | ₹99/mo advanced simulation | 3 |
+| **Worker Premium** | ₹99/mo advanced score insights | 3 |
 | **Regulatory Audit Package** | ₹10k/mo immutable consent logs | 2+ |
 
 **Unit Economics (Month 12):** 3 lenders × 5,000 verifications/mo = ₹6.5L/mo revenue. Algorand tx fees ≈ negligible. Gross margin: ~75%.
@@ -80,7 +80,7 @@ Partner marketplace (Rentomojo, Acko, Upgrad), RBI Sandbox application, and SEA 
 
 ### **6. SCALABILITY VISION**
 
-**Technical:** Proof generation is client-side (Reclaim zk-TLS + Noir on device). Acre backend only verifies ECDSA signatures and submits hashes. On-chain footprint: ~70 bytes local state per user. Algorand handles 10,000+ TPS. Score computation and simulation run off-chain; only proof hashes + eligibility outcomes hit the chain. Costs stay flat regardless of model complexity or user growth.
+**Technical:** Proof generation is client-side (Reclaim zk-TLS + Noir on device). Acre backend verifies ECDSA signatures, computes the Blue Score and affordability-bounded credit limit, and submits the canonical verification outcome to Algorand. Only proof hashes, score outputs, compact metrics, and eligibility outcomes hit the chain. Costs stay flat regardless of model complexity or user growth.
 
 **Market:** India first (1.2 Cr gig workers today, 2.3 Cr by 2028). Dense clusters → national rollout. SEA next: Philippines, Indonesia, Vietnam — identical gig-density + weak credit infra + emerging data protection laws.
 

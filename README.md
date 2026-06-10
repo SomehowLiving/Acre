@@ -1,7 +1,7 @@
 # Acre — Privacy-Preserving Underwriting Framework for Gig Workers
 
 <p align="center">
-  <img src="projects/acre-web/src/assets/acre-logo.png" width="88" alt="Acre" />
+  <img src="acre-web/src/assets/acre-logo.png" width="88" alt="Acre" />
 </p>
 
 <p align="center">
@@ -98,7 +98,7 @@
 > **What you get:**
 > 1. **You define the policy** — Select which proof modules (income, tenure, rating, identity) matter to YOUR risk appetite. Set thresholds. Adjust weights. No black box.
 > 2. **Workers verify locally** — QR scan → Login to Uber/Swiggy → ZK proof generated on their phone → Only YOUR configured signals revealed. Zero custody of raw data.
-> 3. **Blue Score computed** — Bucket-based, explainable scorecard (0–1000) → Prime/Plus/Basic tiers. You know exactly what drives each worker's score.
+> 3. **Blue Score computed** — Explainable 300-900 scorecard → Blue Prime / Blue Plus / Blue Basic tiers. You know exactly what drives each worker's score.
 > 4. **Proof stored immutably** — Consent artifact + proof hash on Algorand. Immutable audit trail for RBI/DPDP inspections. Zero raw PII on your servers.
 > 5. **You query in real-time** — `get_eligibility(worker_wallet)` → Instant credit tier, limit, proof timestamp. Your compliance team sleeps.
 
@@ -131,7 +131,7 @@ flowchart LR
     end
 
     subgraph COMPUTE["3. Score & Store"]
-        SCORE["Blue Score computed<br/>(explainable buckets)"]
+        SCORE["Blue Score computed<br/>(explainable metrics)"]
         CHAIN["Proof hash + consent<br/>logged on Algorand"]
     end
 
@@ -161,8 +161,8 @@ sequenceDiagram
     participant SC as Smart Contract
     participant I as Algorand Indexer
 
-    L->>F: Configure scorecard (Module: Income, Tenure, Rating)
-    L->>F: Set thresholds (Tier 1: ₹25k @ 12%, Tier 2: ₹50k @ 9%)
+    L->>F: Configure policy (income, tenure, rating, activity, completion)
+    L->>F: Set risk appetite and lender rules
     
     W->>F: Connect wallet
     F->>R: Create QR session
@@ -170,14 +170,14 @@ sequenceDiagram
     R->>W: Generate ZK proof (locally)
     W->>F: Submit proof
     F->>F: Verify ECDSA signature
-    F->>F: Extract features (income, tenure, rating)
-    F->>F: Compute Blue Score (742 pts = Tier 2)
-    F->>SC: Store proof hash + score + consent
+    F->>F: Extract metrics (income, tenure, rating, activity, reliability)
+    F->>F: Compute Blue Score (300-900) + affordability limit
+    F->>SC: Store proof hash + score + consent outcome
     SC->>I: Log on-chain
     
     L->>SC: Query get_eligibility(worker_wallet)
-    SC-->>L: Tier 2, ₹50k limit, proof_timestamp
-    L-->>W: Approve ₹50k loan
+    SC-->>L: Blue tier, credit limit, proof timestamp
+    L-->>W: Approve or price loan using own policy
     L->>I: Audit trail ready for RBI inspection
 ```
 
@@ -198,19 +198,20 @@ No coding. Visual configuration. See impact before deployment.
 │ ✗ Crypto Holdings              │
 └────────────────────────────────┘
 
-┌─ SET POINT BUCKETS ─────────────┐
-│ Income ₹40k+ ........... 200 pts │
-│ Tenure 6+ mo ........... 180 pts │
-│ Rating 4.5+ ............ 160 pts │
-│ Activity High .......... 150 pts │
-│ ─────────────────────────────── │
-│ TOTAL: 800+ pts = Your Tier 1   │
+┌─ REVIEW SCORE DRIVERS ──────────┐
+│ Income Stability ........ 30%    │
+│ Consistency / Tenure .... 25%    │
+│ Platform Rating ......... 20%    │
+│ Activity Volume ......... 15%    │
+│ Completion Reliability .. 10%    │
 └────────────────────────────────┘
 
 ┌─ SET LOAN PRODUCTS ─────────────┐
-│ Tier 1 (800+): ₹50k @ 9% APR   │
-│ Tier 2 (650-800): ₹25k @ 12%   │
-│ Tier 3 (<650): ₹10k @ 15%      │
+│ Blue Prime (700+): best pricing │
+│ Blue Plus (530-699): standard   │
+│ Blue Basic (<530): entry tier   │
+│ Limits bounded by income, DTI,  │
+│ and product-level caps          │
 └────────────────────────────────┘
 ```
 
@@ -221,12 +222,12 @@ See how your thresholds affect approval rates **before going live:**
 ```
 Your current policy:
 └─ 1,000 gig-worker applicants
-   ├─ 300 qualify Tier 1 (30% → ₹50k)
-   ├─ 450 qualify Tier 2 (45% → ₹25k)
-   └─ 250 qualify Tier 3 (25% → ₹10k)
+   ├─ 180 qualify Blue Prime (best pricing)
+   ├─ 520 qualify Blue Plus (standard pricing)
+   └─ 300 qualify Blue Basic or require review
    
-   Portfolio impact: ₹18.75 Cr potential disbursement
-   Expected default rate (based on 6mo data): <4%
+   Portfolio impact: lender-specific credit policy
+   Audit trail: proof hash + score + limit + timestamp
 ```
 
 ---
@@ -245,13 +246,13 @@ graph TB
 
     subgraph LAYER2["Layer 2: Feature & Score (Off-Chain)"]
         FEATURES["Feature Extraction"]
-        SCORE["Blue Scorecard<br/>(bucket-based)"]
-        SIMULATOR["What-If Simulator<br/>(worker transparency)"]
+        SCORE["Blue Scorecard<br/>(explainable metrics)"]
+        DASHBOARD["Worker Dashboard<br/>(score, tier, profile)"]
     end
 
     subgraph LAYER3["Layer 3: Decision & Compliance (You Control)"]
         CONSOLE["Your Lender Console<br/>(policy config)"]
-        CONTRACT["Acre Smart Contract<br/>(Algorand App ID: 758797725)"]
+        CONTRACT["Acre Smart Contract<br/>(Algorand App ID: 764223486)"]
         INDEXER["Algorand Indexer<br/>(audit trail)"]
     end
 
@@ -259,7 +260,8 @@ graph TB
     DID --> FEATURES
     NOIR --> FEATURES
     FEATURES --> SCORE
-    SCORE --> CONSOLE
+    SCORE --> DASHBOARD
+    DASHBOARD --> CONSOLE
     CONSOLE --> CONTRACT
     CONTRACT --> INDEXER
 
@@ -280,17 +282,31 @@ graph TB
 
 ## Smart Contracts
 
-**App ID (TestNet):** `758797725`
+**App ID (TestNet):** `764223486`
 
 ### What the Contract Does
 
 ```python
 @application.internal()
 def verify_income(
-    proof_hash: str,
-    score: uint64,
-    tier: str,
+    user_wallet: str,
+    tier: uint64,
     credit_limit: uint64,
+    timestamp: uint64,
+    proof_hash: bytes,
+    rider_count: uint64,
+    rider_rating: uint64,
+    platform: str,
+    score: uint16,
+    income_bucket: uint8,
+    tenure_bucket: uint8,
+    completion_bucket: uint8,
+    rating_bucket: uint8,
+    source: str,
+    plausibility_flags: uint8,
+    monthly_earnings: uint64,
+    tenure_months: uint64,
+    completion_rate: uint64,
 ) -> None:
     """
     Store worker's verified score and credit tier.
@@ -302,20 +318,19 @@ def verify_income(
     worker_state['score'] = score
     worker_state['tier'] = tier
     worker_state['credit_limit'] = credit_limit
-    worker_state['timestamp'] = Global.latest_timestamp()
+    worker_state['monthly_earnings'] = monthly_earnings
+    worker_state['tenure_months'] = tenure_months
+    worker_state['completion_rate'] = completion_rate
+    worker_state['timestamp'] = timestamp
 
 @application.external(read_only=True)
-def get_eligibility(address: str) -> TupleType(str, uint64, uint64):
+def get_eligibility(address: str) -> uint64:
     """
-    Query worker's tier, score, and credit limit.
+    Query worker's current stored credit limit.
     Permissionless — any lender can call.
     """
     worker_state = local_state(address)
-    return (
-        worker_state['tier'],
-        worker_state['score'],
-        worker_state['credit_limit']
-    )
+    return worker_state['credit_limit']
 ```
 
 ### How You Use It
@@ -325,20 +340,23 @@ def get_eligibility(address: str) -> TupleType(str, uint64, uint64):
 algosdk.send_atomic(group=[
     txn.verify_income(
         proof_hash="0x1a2b3c...",
-        score=742,
-        tier="Tier 2",
-        credit_limit=2500000  # ₹25k in microAlgos
+        tier=2,
+        credit_limit=25000,
+        score=685,
+        monthly_earnings=36000,
+        tenure_months=18
     )
 ])
 
 # 2. When an applicant submits a loan request
-eligibility = contract.get_eligibility(worker_wallet)
-tier, score, limit = eligibility
+limit = contract.get_eligibility(worker_wallet)
+profile = contract.get_full_profile(worker_wallet)
+score = profile.score
 
-if score >= 650:
-    print(f"Approve ₹{limit/100000} loan at your {tier} rate")
+if score >= 530 and limit > 0:
+    print(f"Review ₹{limit} eligibility under your policy")
 else:
-    print("Decline or offer Tier 3 micro-loan")
+    print("Decline or request updated verification")
 ```
 
 ---
@@ -351,7 +369,7 @@ else:
 | **Proof Engine** | Reclaim Protocol (zk-TLS), Noir ZK Circuits, DID-ready |
 | **Frontend** | React 18, TypeScript, Vite, Tailwind CSS |
 | **Backend** | Node.js 20+, Express, Algorand SDK |
-| **Smart Contracts** | PyTeal, ARC-4 ABI |
+| **Smart Contracts** | Algorand Python contract, ARC-4 ABI |
 | **Database** | Supabase (workflows, audit logs) |
 | **Blockchain** | Algorand (sub-3s finality, ~₹0.02 per verification) |
 
@@ -419,14 +437,13 @@ Fund TestNet wallet: [Algorand dispenser](https://dispenser.testnet.aws.algodev.
 git clone https://github.com/somehowliving/acre.git
 cd acre
 
-cd projects/acre-web && npm install
-cd ../acre && npm install
-cd ../acre-contract && npm install
+cd acre-web && npm install
+cd .. && npm install
 ```
 
 ### Environment configuration
 
-**Frontend** (`projects/acre-web`):
+**Frontend** (`acre-web`):
 
 ```bash
 cp .env.example .env.local
@@ -437,10 +454,10 @@ cp .env.example .env.local
 | `VITE_RECLAIM_APP_ID` | Yes | Reclaim protocol |
 | `VITE_RECLAIM_APP_SECRET` | Yes | Reclaim secret |
 | `VITE_BACKEND_VERIFY_URL` | Yes | Backend endpoint |
-| `VITE_ALGORAND_APP_ID` | Yes | `758797725` (TestNet) |
+| `VITE_ALGORAND_APP_ID` | Yes | `764223486` (TestNet) |
 | `VITE_ALGOD_SERVER` | Yes | Algorand RPC |
 
-**Backend** (`projects/acre`):
+**Backend** (repo root):
 
 ```bash
 cp .env.example .env
@@ -457,7 +474,6 @@ cp .env.example .env
 **Terminal 1 - Backend**
 
 ```bash
-cd projects/acre
 npm start
 # Listening on http://localhost:3001
 ```
@@ -465,9 +481,9 @@ npm start
 **Terminal 2 - Frontend**
 
 ```bash
-cd projects/acre-web
+cd acre-web
 npm run dev
-# Listening on http://localhost:5173
+# Listening on http://localhost:8080
 ```
 
 ---
@@ -498,7 +514,7 @@ npm run dev
 
 ## Business Model & GTM
 
-Detailed pricing, unit economics, roadmap, and partnership strategy: **[GTM.md](../docs/GTM.md)**
+Detailed pricing, unit economics, roadmap, and partnership strategy: **[GTM.md](./docs/GTM.md)**
 
 ---
 

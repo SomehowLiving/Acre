@@ -21,8 +21,8 @@ Think of Acre like CIBIL or Experian (credit bureaus) — but using Zero-Knowled
 What Acre Does:
 1. Worker submits ZK proof of income (via Reclaim)
 2. Acre verifies the proof signature
-3. Acre stores: "This worker is verified as Tier 2"
-4. Acre provides query API: "Is wallet 0xABC... eligible?"
+3. Acre stores the worker's verified Blue Score, tier, credit limit, proof hash, and proof timestamp
+4. Acre provides query API: "What is this wallet's verified eligibility profile?"
 
 What Acre Does NOT Do:
 ❌ Issue loans
@@ -51,8 +51,8 @@ What Acre Does NOT Do:
 │           ACRE PROTOCOL (What WE Build)                     │
 │  ┌────────────────────────────────────────────────────────┐ │
 │  │ Smart Contract:                                        │ │
-│  │ • verify_income(proof) → Stores verification           │ │
-│  │ • get_eligibility(wallet) → Returns tier/limit         │ │
+│  │ • verify_income(...) → Stores verified score profile   │ │
+│  │ • get_eligibility(wallet) → Returns credit limit       │ │
 │  │                                                        │ │
 │  │ Frontend:                                              │ │
 │  │ • Worker UI to submit proofs                          │ │
@@ -67,7 +67,7 @@ What Acre Does NOT Do:
 │  ┌────────────────────────────────────────────────────────┐ │
 │  │ 1. User applies for loan in lender's app              │ │
 │  │ 2. Lender queries Acre: "Is this wallet eligible?"    │ │
-│  │ 3. Acre responds: "Yes, Tier 2, Limit ₹50,000"        │ │
+│  │ 3. Acre responds with Blue Score, tier, and limit      │ │
 │  │ 4. Lender issues loan - THEIR JOB, NOT ACRE'S         │ │
 │  │ 5. Lender tracks repayment - THEIR JOB, NOT ACRE'S    │ │
 │  └────────────────────────────────────────────────────────┘ │
@@ -127,34 +127,34 @@ What Acre Does NOT Do:
 6. YOUR BACKEND VERIFIES
    Calls: Reclaim.verifyProof(proof)
    ✓ Signature is valid
-   Extract: income_band = 2
+   Extract: verified platform metrics
    ↓
 
 7. SUBMITS TO ALGORAND
-   Calls smart contract: verify_income(proof, publicSignals, wallet)
+   Calls smart contract: verify_income(profile, proof_hash, wallet)
    ↓
 
 8. SMART CONTRACT STORES
    Verifies tier is valid (1-3)
-   Maps tier to credit limit (1→10k, 2→50k, 3→150k)
+   Stores the Blue Score, tier, credit limit, proof hash, and compact scoring metrics
    Stores on-chain:
      - verified: true
      - tier: 2
-     - limit: 50000
+     - score: 685
+     - limit: 25000
      - timestamp: now
      - proof_hash: sha256(proof)
    ↓
 
 9. FRONTEND SHOWS RESULT
-   Worker sees: "✓ Verified as Tier 2"
-   "Credit Limit: ₹50,000"
+   Worker sees the verified Blue Score, Blue tier, and credit limit
    "Share your wallet with lenders to apply for loans"
    ↓
 
 10. LENDER QUERIES ACRE
     Lender's app (or SDK): acre.getEligibility(workerWallet)
-    Acre returns: { verified: true, tier: 2, limit: 50000 }
-    Lender decides: "We'll offer a ₹30,000 loan"
+    Acre returns: { verified: true, score: 685, tier: 2, limit: 25000 }
+    Lender decides its own loan offer and pricing
     Lender issues loan (using their own capital, logic, system)
     ↓
 
@@ -166,7 +166,7 @@ What Acre Does NOT Do:
 12. WORKER CAN RE-VERIFY
     Income changes after 6 months
     Worker runs verification again
-    Acre stores new tier (might be higher or lower)
+    Acre stores the updated score profile
     Lenders can query for updated eligibility
 ```
 
@@ -190,16 +190,17 @@ What Acre Does NOT Do:
    - "Verify Income" button
    - QR code display
    - Proof status UI
-   - Result display
+   - Result display for Blue Score, tier, limit, proof hash, and tx ID
 
 2. **Backend (Node.js)**
    - Receive Reclaim proof
    - Verify Reclaim.verifyProof()
-   - Extract tier from public signals
+   - Extract verified platform metrics
+   - Compute Blue Score, tier, and affordability-bounded credit limit
    - Call smart contract
 
-3. **Smart Contract (PyTeal)**
-   - `verify_income()` - Store verification
+3. **Smart Contract (Algorand Python + ARC-4 ABI)**
+   - `verify_income()` - Store verified score profile
    - `get_eligibility()` - Query API
 
 4. **Lender SDK (TypeScript)**
@@ -231,7 +232,7 @@ Timeline:
 Goal: Contract deployed, can store verification
 
 Timeline:
-- 2 hours: PyTeal setup + environment
+- 2 hours: contract setup + environment
 - 2 hours: Write both methods (verify_income + get_eligibility)
 - 2 hours: Local testing
 - 1 hour: Deploy to Testnet
@@ -283,7 +284,7 @@ Everyone's privacy is protected."
 
 5. "Lender can now check eligibility"
    [Show SDK: acre.getEligibility(wallet)]
-   Output: { verified: true, tier: 2, limit: 50000 }
+   Output: { verified: true, score: 685, tier: 2, limit: 25000 }
 
 6. "Lender issues loan with their own logic"
    [Show lender app, not Acre]
@@ -292,7 +293,7 @@ Everyone's privacy is protected."
 "Unlike traditional fintech:
 - No PDFs uploaded
 - No raw data stored
-- Acre stores only: tier + limit
+- Acre stores only: proof hash + score + tier + limit + compact metrics
 - Lender's app handles loans
 - Acre handles verification"
 
@@ -305,7 +306,7 @@ Everyone's privacy is protected."
 ## Key Takeaways
 
 1. **Acre is NOT a lender** - It's a verification bureau
-2. **Acre has 2 functions** - verify_income() and get_eligibility()
+2. **Acre has a focused on-chain surface** - verify_income(), get_eligibility(), get_full_profile(), and proof-hash reads
 3. **Lenders build loan logic** - Not Acre's responsibility
 4. **Privacy by design** - Raw data never touches Acre
 5. **Simple MVP** - Don't overthink it
@@ -325,12 +326,12 @@ assign a credit tier, and issue a loan. All without storing any raw data."
 
 1. Click "Connect Uber Income" button
 2. [Show QR code] "This QR code opens Reclaim's secure app"
-3. [Demonstrate scanning - you can simulate if no actual Uber account]
+3. [Show the consented verification flow]
 4. "User logs into Uber... Reclaim witnesses the login..."
 5. [Wait 2-3 seconds - or skip to cached result]
 6. "Proof arrives at our platform"
 7. "Smart contract verifies it in 200ms..."
-8. [UI updates] "✓ Income Verified! Tier 2. Credit Limit: ₹50,000"
+8. [UI updates] "Blue Score verified. Credit eligibility stored on Algorand."
 9. "User can now request a loan"
 
 [Explain: 2 minutes]

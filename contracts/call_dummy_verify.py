@@ -91,6 +91,16 @@ def main() -> int:
             321,                    # rider_count
             478,                    # rider_rating (4.78 * 100)
             "uber",                # platform
+            742,                    # score
+            3,                      # income_bucket
+            2,                      # tenure_bucket
+            3,                      # completion_bucket
+            3,                      # rating_bucket
+            "reclaim",             # source
+            0,                      # plausibility_flags
+            42000,                  # monthly_earnings
+            9,                      # tenure_months
+            9600,                   # completion_rate (96.00%)
         ],
     )
 
@@ -109,6 +119,18 @@ def main() -> int:
             "rider_count": 321,
             "rider_rating": 478,
             "platform": "uber",
+            "score": 742,
+            "buckets": {
+                "income": 3,
+                "tenure": 2,
+                "completion": 3,
+                "rating": 3,
+            },
+            "source": "reclaim",
+            "plausibility_flags": 0,
+            "monthly_earnings": 42000,
+            "tenure_months": 9,
+            "completion_rate": 9600,
         },
     }
     (BASE_DIR / "dummy_verify_result.json").write_text(json.dumps(out, indent=2), encoding="utf-8")

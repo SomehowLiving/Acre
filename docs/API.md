@@ -54,9 +54,13 @@ No API keys required for public endpoints. The backend uses the `VERIFIER_MNEMON
 {
   "success": true,
   "tier": 2,
-  "creditLimit": 25000,
+  "contractTier": 2,
+  "creditLimit": 10000,
+  "score": 626,
+  "blueScoreTier": "Blue Plus",
+  "apr": "13-15",
   "txId": "JFASFYIBWEYBW7GFBQWBQW...",
-  "message": "Established driver: ₹45,230/month"
+  "message": "Established worker - solid income history and reliable platform record"
 }
 ```
 
@@ -76,6 +80,8 @@ No API keys required for public endpoints. The backend uses the `VERIFIER_MNEMON
 | GET | `/api/user/:address/credit-limit` | Credit limit | `{ success: true, creditLimit: 25000 }` |
 | GET | `/api/user/:address/full-profile` | Complete profile | See example below |
 | GET | `/api/user/:address/proof-hash` | Proof hash (for audit) | `{ success: true, proofHash: "0x..." }` |
+| GET | `/api/blue-score/:address` | Canonical Blue Score profile | Score, tier, credit limit, signals, on-chain state |
+| GET | `/api/user/:address/history` | ACRE verification history | Verification count and freshness |
 
 **Full Profile Example**
 ```json
@@ -88,8 +94,21 @@ No API keys required for public endpoints. The backend uses the `VERIFIER_MNEMON
     "creditLimit": 25000,
     "timestamp": 1741987200,
     "riderCount": 2102,
-    "riderRating": 469,
-    "platform": "uber"
+    "riderRating": 4.69,
+    "platform": "uber",
+    "score": 685,
+    "buckets": 50595076,
+    "bucketBreakdown": {
+      "incomeBucket": 3,
+      "tenureBucket": 4,
+      "completionBucket": 2,
+      "ratingBucket": 4
+    },
+    "source": "reclaim",
+    "plausibilityFlags": 0,
+    "monthlyEarnings": 36000,
+    "tenureMonths": 18,
+    "completionRate": 92
   }
 }
 ```
@@ -114,9 +133,9 @@ No API keys required for public endpoints. The backend uses the `VERIFIER_MNEMON
 
 ---
 
-## Smart Contract Methods (PyTeal ABI)
+## Smart Contract Methods (Algorand ARC-4 ABI)
 
-**Application ID:** `APP_ID` (set in `.env`)
+**Application ID:** `764223486` on Algorand TestNet, or `APP_ID` / `TESTNET_APP_ID` from `.env`.
 
 ### Write Methods (Restricted)
 
@@ -152,7 +171,17 @@ verify_income(
     proof_hash: StaticBytes[32],
     rider_count: Uint64,
     rider_rating: Uint64,  # rating * 100
-    platform: String
+    platform: String,
+    score: Uint16,         # Blue Score, 300-900
+    income_bucket: Uint8,
+    tenure_bucket: Uint8,
+    completion_bucket: Uint8,
+    rating_bucket: Uint8,
+    source: String,
+    plausibility_flags: Uint8,
+    monthly_earnings: Uint64,
+    tenure_months: Uint64,
+    completion_rate: Uint64 # percent * 100
 )
 ```
 
@@ -183,9 +212,12 @@ verify_income(
 
 - **Addresses:** Base32 Algorand format (e.g., `ABCD...1234`)
 - **Credit Limit:** Integer in rupees (not micro units)
+- **Blue Score:** Integer from 300 to 900
+- **Blue Tier:** Blue Basic (<530), Blue Plus (530-699), Blue Prime (700+)
 - **Timestamp:** Unix timestamp (seconds)
 - **Proof Hash:** 64-character lowercase hex string
 - **Rider Rating:** Integer (e.g., 469 = 4.69 stars)
+- **Completion Rate:** Stored as percent × 100 on-chain; API normalizes to percent
 
 ---
 

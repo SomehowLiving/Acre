@@ -33,7 +33,7 @@ Privacy + Verifiability + Composability on Algorand.
 - **Zero-Knowledge** — Prove predicates, never reveal data
 - **On-chain Finality** — Immutable eligibility signals
 - **Permissionless Reads** — Any lender can query
-- **Minimal On-chain Footprint** — ~70 bytes per user
+- **Compact On-chain Footprint** — score, proof hash, and essential verification metrics only
 
 ---
 
@@ -43,8 +43,8 @@ Privacy + Verifiability + Composability on Algorand.
 |------------------------|----------------------------------|-------------------------------------|--------------|
 | **Client**             | Acre Web App                     | React + Vite + Pera/Defly           | UI, Wallet, Reclaim SDK |
 | **Proof Engine**       | Reclaim Protocol                 | zk-TLS + Noir Circuits              | Attestation & ZK Proof Generation |
-| **Backend**            | Acre Verifier Service            | Node.js + Express                   | Proof validation, tier calculation, chain submission |
-| **Blockchain**         | AcreVerification Contract        | PyTeal (ARC-4) on Algorand          | Immutable state storage & eligibility queries |
+| **Backend**            | Acre Verifier Service            | Node.js + Express                   | Proof validation, Blue Score calculation, affordability policy, chain submission |
+| **Blockchain**         | AcreVerification Contract        | Algorand Python contract + ARC-4 ABI | Immutable state storage & eligibility queries |
 | **Lending Layer**      | Fintech SDK / dApps              | TypeScript / Any language           | Read eligibility & issue loans |
 | **Monitoring**         | Algorand Indexer + Logs          | Indexer + Event listening           | Audit & notifications |
 
@@ -65,7 +65,7 @@ flowchart TD
 
     subgraph Backend ["Acre Backend"]
         D[Express Server]
-        E[Tier Calculation Logic]
+        E[Blue Score + Affordability Logic]
     end
 
     subgraph Algorand ["Algorand Blockchain"]
@@ -80,7 +80,7 @@ flowchart TD
     A -->|TLS Session| B
     B -->|Signed Proof| C
     C -->|ZK Proof| D
-    D -->|Validate + Tier| E
+    D -->|Validate + Score| E
     E -->|verify_income()| F
     F --> G
     H -->|get_eligibility()| F
@@ -108,12 +108,12 @@ sequenceDiagram
     W->>F: Return Proof
     F->>B: POST /verify-proof
     B->>B: Verify Signature + Extract Data
-    B->>B: Calculate Tier & Credit Limit
+    B->>B: Calculate Blue Score, Tier & Credit Limit
     B->>SC: verify_income() [as Verifier]
     SC->>SC: Validate + Store Local State
     SC-->>B: Confirmed
     B-->>F: Success + Tier Info
-    F-->>W: Show "Tier 2 Verified"
+    F-->>W: Show Blue Score, tier, credit limit, and proof status
     
     L->>SC: get_eligibility(wallet)
     SC-->>L: Credit Limit
@@ -131,11 +131,11 @@ sequenceDiagram
     ReclaimSDK-->>Backend: true/false + ECDSA validation
     
     Backend->>Backend: Generate proofHash (SHA256)
-    Backend->>Backend: Calculate Tier & Limit
+    Backend->>Backend: Calculate Blue Score, Tier & Limit
     
     Backend->>Algorand: AtomicTransactionComposer.verify_income(...)
     Algorand->>Algorand: Asserts (verifier, opt-in, timestamp, tier)
-    Algorand->>Algorand: LocalPut (8 keys)
+    Algorand->>Algorand: LocalPut canonical profile fields
     Algorand->>Algorand: GlobalPut (proof_count)
     Algorand-->>Backend: Tx Confirmed
 ```
@@ -164,7 +164,7 @@ sequenceDiagram
 ### Off-Chain
 - Heavy computation (ZK proof generation)
 - Raw data handling (never leaves user device)
-- Complex business logic (tier calculation)
+- Complex business logic (Blue Score and credit limit calculation)
 - Reclaim integration & signature verification
 - User experience (UI/UX, QR scanning)
 
@@ -211,13 +211,13 @@ flowchart LR
 
     subgraph Public ["Public Domain"]
         Proof[ZK Proof + Signals] --> Backend
-        Backend --> OnChain[On-chain: Tier + Limit + Hash]
+        Backend --> OnChain[On-chain: Score + Tier + Limit + Hash]
         OnChain --> Lender[Lender Query]
     end
 ```
 
 **Privacy Guarantee:**  
-Only `true/false` predicates + tier + credit limit are revealed. Exact income, transactions, and identities remain hidden.
+Only the verification outcome, Blue Score, tier, credit limit, proof hash, and compact scoring metrics are revealed. Raw identity documents, full account data, and source credentials are never stored on-chain.
 
 ---
 
@@ -255,14 +255,14 @@ sequenceDiagram
     F->>B: 9. Sends proof to backend (POST /verify-proof)
 
     B->>B: Validates Reclaim signatures (ECDSA)
-    B->>B: Extracts metrics + Calculates credit tier
+    B->>B: Extracts metrics + Calculates Blue Score
 
     B->>SC: 10. Calls verify_income() on smart contract
     SC->>SC: Verifies proof hash, timestamp, opt-in, etc.
     SC-->>B: Transaction Confirmed
 
-    B-->>F: Success response with tier & credit limit
-    F-->>W: 11. Displays "Tier 2 Verified • ₹50,000 Limit"
+    B-->>F: Success response with score, tier & credit limit
+    F-->>W: 11. Displays verified Blue Score and eligibility
 ```
 
 **This diagram clearly shows the complete happy path flow.**
@@ -281,7 +281,7 @@ flowchart TD
         direction TB
         FE[Frontend<br/>React + Reclaim SDK + Wallet]
         BE[Backend<br/>Node.js Express]
-        SC[Algorand Smart Contract<br/>PyTeal]
+        SC[Algorand Smart Contract<br/>ARC-4 ABI]
         
         FE <--> BE
         BE <--> SC

@@ -149,6 +149,60 @@ function normalizeAbiValue(value) {
   return value;
 }
 
+function toNumber(value, fallback = 0) {
+  const numberValue = Number(value);
+  return Number.isFinite(numberValue) ? numberValue : fallback;
+}
+
+function unpackBuckets(packedValue) {
+  const packed = toNumber(packedValue);
+  return {
+    incomeBucket: Math.floor(packed / 16777216) % 256,
+    tenureBucket: Math.floor(packed / 65536) % 256,
+    completionBucket: Math.floor(packed / 256) % 256,
+    ratingBucket: packed % 256,
+  };
+}
+
+function normalizeFullProfile(value) {
+  const [
+    verified,
+    tier,
+    creditLimit,
+    timestamp,
+    riderCount,
+    riderRating,
+    platform,
+    score,
+    buckets,
+    source,
+    plausibilityFlags,
+    monthlyEarnings,
+    tenureMonths,
+    completionRate,
+  ] = Array.isArray(value) ? value : [];
+  const completionRateRaw = toNumber(completionRate);
+
+  return {
+    verified: toNumber(verified) === 1,
+    tier: toNumber(tier),
+    creditLimit: toNumber(creditLimit),
+    timestamp: toNumber(timestamp),
+    riderCount: toNumber(riderCount),
+    riderRating: toNumber(riderRating) / 100,
+    platform: platform || '',
+    score: toNumber(score),
+    buckets: toNumber(buckets),
+    bucketBreakdown: unpackBuckets(buckets),
+    source: source || '',
+    plausibilityFlags: toNumber(plausibilityFlags),
+    monthlyEarnings: toNumber(monthlyEarnings),
+    tenureMonths: toNumber(tenureMonths),
+    completionRate: completionRateRaw / 100,
+    completionRateRaw,
+  };
+}
+
 async function callReadMethod({
   methodName,
   methodArgs = [],
@@ -257,6 +311,15 @@ function bytes32ChunksFromHex(value, fieldName) {
 
 function sha256Hex(value) {
   return crypto.createHash('sha256').update(value).digest('hex');
+}
+
+function seededUnit(seedHex, offset) {
+  const chunk = seedHex.slice(offset, offset + 8).padEnd(8, '0');
+  return parseInt(chunk, 16) / 0xffffffff;
+}
+
+function seededRange(seedHex, offset, min, max) {
+  return min + seededUnit(seedHex, offset) * (max - min);
 }
 
 function buildClaimHash(walletAddress, claimType, claimValue) {
@@ -692,6 +755,16 @@ async function callVerifyIncomeOnChain({
   riderCount,
   riderRating,
   platform,
+  score,
+  incomeBucket,
+  tenureBucket,
+  completionBucket,
+  ratingBucket,
+  source,
+  plausibilityFlags,
+  monthlyEarnings,
+  tenureMonths,
+  completionRate,
 }) {
   const algodClient = getAlgodClient();
   const verifierSk = getVerifierAccount();
@@ -720,6 +793,16 @@ async function callVerifyIncomeOnChain({
       riderCount,
       riderRating,
       platform,
+      score,
+      incomeBucket,
+      tenureBucket,
+      completionBucket,
+      ratingBucket,
+      source,
+      plausibilityFlags,
+      monthlyEarnings,
+      tenureMonths,
+      completionRate,
     ],
   });
 
@@ -781,6 +864,7 @@ async function verifyIncomeProofAndAnchor({ proof, walletAddress, identity = nul
   const signals = extractReclaimSignals(proof, proofHash);
   const blueScore = computeBlueScore(signals);
   const { contractTier: tier, creditLimit, reason, score, breakdown, apr } = blueScore;
+  const scoreRecord = scoreRecordFromSignals(signals);
   const riderCount = signals.trips;
   const riderRating = Math.round(signals.rating * 100);
 
@@ -798,6 +882,8 @@ async function verifyIncomeProofAndAnchor({ proof, walletAddress, identity = nul
     riderCount,
     riderRating,
     platform: 'uber',
+    score,
+    ...scoreRecord,
   });
 
   console.log('\n╔══════════════════════════════════════════════════════════════════╗');
@@ -809,6 +895,9 @@ async function verifyIncomeProofAndAnchor({ proof, walletAddress, identity = nul
   console.log('║ MONTHLY EARNINGS: ₹' + signals.earnings.toLocaleString());
   console.log('║ TENURE:', signals.tenure, 'months');
   console.log('║ COMPLETION RATE:', signals.completionRate + '%');
+  if (signals.plausibilityIssues?.length) {
+    console.log('║ PLAUSIBILITY ADJUSTMENTS:', signals.plausibilityIssues.join(', '));
+  }
   console.log('║ BLUE SCORE:', score);
   console.log('║ TIER:', blueScore.tier, `(contract tier ${tier})`);
   console.log('║ CREDIT LIMIT: ₹' + creditLimit.toLocaleString());
@@ -836,6 +925,10 @@ async function verifyIncomeProofAndAnchor({ proof, walletAddress, identity = nul
       earnings: signals.earnings,
       tenure: signals.tenure,
       completionRate: signals.completionRate,
+      monthlyTrips: signals.monthlyTrips,
+      rupeesPerTrip: signals.rupeesPerTrip,
+      plausibilityIssues: signals.plausibilityIssues,
+      syntheticProfile: signals.syntheticProfile,
       source: signals.source,
     },
     breakdown,
@@ -885,7 +978,7 @@ function extractReclaimSignals(proof, proofHash) {
   const earnings = monthlyEarn || (weeklyEarn ? weeklyEarn * 4 : 0);
 
   if (trips > 0 || rating > 0 || earnings > 0) {
-    return {
+    return normalizeGigSignals({
       trips: trips || Math.round(earnings / 300),  // rough fallback within real data
       rating: rating || 4.2,
       earnings: earnings || trips * 280,
@@ -893,28 +986,230 @@ function extractReclaimSignals(proof, proofHash) {
       completionRate: completion || 88,
       weeklyEarnings: weeklyEarn || Math.round(earnings / 4),
       source: 'reclaim_proof',
-    };
+    });
   }
 
   // Deterministic fallback — same proof → same score, every time.
-  // Each field uses a different slice of the hash to avoid correlation.
-  const h = sha256Hex(proofHash);
-  const s0 = parseInt(h.slice(0, 8), 16);   // trips
-  const s1 = parseInt(h.slice(8, 16), 16);  // rating
-  const s2 = parseInt(h.slice(16, 24), 16);  // earnings
-  const s3 = parseInt(h.slice(24, 32), 16);  // tenure
-  const s4 = parseInt(h.slice(32, 40), 16);  // completion
+  // Build correlated values so mock data remains physically and commercially plausible.
+  return deriveSyntheticGigProfile(proofHash, 'deterministic_fallback');
+}
 
-  const fallbackEarnings = 14000 + (s2 % 61000);  // ₹14k – ₹75k
+const GIG_SIGNAL_POLICY = {
+  minFarePerTrip: 35,
+  maxFarePerTrip: 650,
+  maxTripsPerMonth: 520, // ~20 trips/day over 26 working days
+  minSyntheticMonthlyEarnings: 15000,
+  maxSyntheticMonthlyEarnings: 80000,
+};
+
+const SYNTHETIC_GIG_ARCHETYPES = [
+  {
+    name: 'thin_starter',
+    weight: 0.18,
+    tenure: [2, 5],
+    monthlyTrips: [90, 150],
+    fare: [95, 135],
+    completion: [80, 88],
+    rating: [3.9, 4.35],
+  },
+  {
+    name: 'part_time_regular',
+    weight: 0.28,
+    tenure: [4, 12],
+    monthlyTrips: [140, 230],
+    fare: [110, 160],
+    completion: [86, 93],
+    rating: [4.15, 4.6],
+  },
+  {
+    name: 'full_time_solid',
+    weight: 0.34,
+    tenure: [8, 24],
+    monthlyTrips: [220, 360],
+    fare: [125, 190],
+    completion: [90, 96],
+    rating: [4.35, 4.8],
+  },
+  {
+    name: 'top_operator',
+    weight: 0.20,
+    tenure: [18, 36],
+    monthlyTrips: [330, 500],
+    fare: [145, 225],
+    completion: [94, 99],
+    rating: [4.6, 4.95],
+  },
+];
+
+function pickSyntheticArchetype(seedHex) {
+  const selector = seededUnit(seedHex, 0);
+  let cumulative = 0;
+  for (const archetype of SYNTHETIC_GIG_ARCHETYPES) {
+    cumulative += archetype.weight;
+    if (selector <= cumulative) return archetype;
+  }
+  return SYNTHETIC_GIG_ARCHETYPES[SYNTHETIC_GIG_ARCHETYPES.length - 1];
+}
+
+function deriveSyntheticGigProfile(seedValue, source) {
+  const h = sha256Hex(`${source}|${seedValue}`);
+  const archetype = pickSyntheticArchetype(h);
+  const tenure = Math.round(seededRange(h, 8, archetype.tenure[0], archetype.tenure[1]));
+  const monthlyTrips = Math.round(seededRange(h, 16, archetype.monthlyTrips[0], archetype.monthlyTrips[1]));
+  const rupeesPerTrip = seededRange(h, 24, archetype.fare[0], archetype.fare[1]);
+  const completionRate = Math.round(seededRange(h, 32, archetype.completion[0], archetype.completion[1]));
+  const rating = Number(seededRange(h, 40, archetype.rating[0], archetype.rating[1]).toFixed(2));
+  const earningsNoise = seededRange(h, 48, 0.92, 1.08);
+  const monthlyEarnings = Math.round((monthlyTrips * rupeesPerTrip * earningsNoise) / 500) * 500;
+
+  return normalizeGigSignals({
+    trips: monthlyTrips * tenure,
+    rating,
+    earnings: monthlyEarnings,
+    tenure,
+    completionRate,
+    weeklyEarnings: Math.round(monthlyEarnings / 4),
+    monthlyTrips,
+    rupeesPerTrip: Number(rupeesPerTrip.toFixed(2)),
+    syntheticProfile: archetype.name,
+    source,
+  });
+}
+
+function normalizeGigSignals(input) {
+  const issues = [];
+  const trips = Math.max(0, Math.round(Number(input.trips || 0)));
+  let tenure = Math.max(1, Math.round(Number(input.tenure || 1)));
+  let earnings = Math.max(0, Math.round(Number(input.earnings || 0)));
+  let completionRate = Math.max(0, Math.min(100, Math.round(Number(input.completionRate || 0))));
+  let rating = Math.max(0, Math.min(5, Number(input.rating || 0)));
+
+  const minTenureForVolume = Math.max(1, Math.ceil(trips / GIG_SIGNAL_POLICY.maxTripsPerMonth));
+  if (tenure < minTenureForVolume) {
+    issues.push(`tenure_raised_for_trip_volume:${tenure}->${minTenureForVolume}`);
+    tenure = minTenureForVolume;
+  }
+
+  const monthlyTrips = trips / Math.max(tenure, 1);
+  const minEarnings = Math.round(monthlyTrips * GIG_SIGNAL_POLICY.minFarePerTrip);
+  const maxEarnings = Math.round(monthlyTrips * GIG_SIGNAL_POLICY.maxFarePerTrip);
+  if (earnings > 0 && earnings < minEarnings) {
+    issues.push(`earnings_raised_to_min_fare:${earnings}->${minEarnings}`);
+    earnings = minEarnings;
+  }
+  if (earnings > maxEarnings) {
+    issues.push(`earnings_capped_to_max_fare:${earnings}->${maxEarnings}`);
+    earnings = maxEarnings;
+  }
+  if (input.source !== 'reclaim_proof') {
+    earnings = Math.max(
+      GIG_SIGNAL_POLICY.minSyntheticMonthlyEarnings,
+      Math.min(earnings, GIG_SIGNAL_POLICY.maxSyntheticMonthlyEarnings)
+    );
+  }
+
+  if (completionRate >= 95 && rating > 0 && rating < 4.2) {
+    issues.push(`rating_raised_for_high_completion:${rating}->4.2`);
+    rating = 4.2;
+  }
+
   return {
-    trips: 300 + (s0 % 2700),                                 // 300  – 3000
-    rating: Number((3.80 + (s1 % 121) / 100).toFixed(2)),       // 3.80 – 5.00
-    earnings: fallbackEarnings,
-    tenure: 2 + (s3 % 34),                                   // 2    – 35 months
-    completionRate: 80 + (s4 % 20),                                   // 80   – 99 %
-    weeklyEarnings: Math.round(fallbackEarnings / 4),
-    source: 'deterministic_fallback',
+    ...input,
+    trips,
+    rating: Number(rating.toFixed(2)),
+    earnings,
+    tenure,
+    completionRate,
+    weeklyEarnings: input.weeklyEarnings || Math.round(earnings / 4),
+    monthlyTrips: Math.round(monthlyTrips),
+    rupeesPerTrip: Number((earnings / Math.max(monthlyTrips, 1)).toFixed(2)),
+    plausibilityIssues: issues,
   };
+}
+
+function deriveAddressSeedSignals(address) {
+  return deriveSyntheticGigProfile(address, 'address_seed');
+}
+
+function deriveOnchainSignals(onchain) {
+  const tierMultipliers = { 3: 1.5, 2: 1.0, 1: 0.5 };
+  const m = tierMultipliers[onchain.tier] || 0.5;
+  const estimatedEarnings = onchain.creditLimit > 0
+    ? Math.round(onchain.creditLimit / m)
+    : onchain.riderCount * 280;
+
+  return normalizeGigSignals({
+    trips: onchain.riderCount,
+    rating: onchain.riderRating,
+    earnings: onchain.monthlyEarnings > 0 ? onchain.monthlyEarnings : estimatedEarnings,
+    tenure: onchain.tenureMonths > 0 ? onchain.tenureMonths : Math.max(1, Math.round(onchain.riderCount / 100)),
+    completionRate: onchain.completionRate > 0
+      ? onchain.completionRate
+      : Math.min(99, Math.round(85 + (onchain.riderRating - 4.0) * 20)),
+    source: onchain.source || 'onchain_derived',
+  });
+}
+
+function bucketFor(value, thresholds) {
+  if (value < thresholds[0]) return 1;
+  if (value < thresholds[1]) return 2;
+  if (value < thresholds[2]) return 3;
+  return 4;
+}
+
+function scoreRecordFromSignals(signals) {
+  const flags = signals.plausibilityIssues || [];
+  let plausibilityFlags = 0;
+  if (flags.some((f) => f.startsWith('tenure_raised'))) plausibilityFlags |= 1;
+  if (flags.some((f) => f.startsWith('earnings_raised'))) plausibilityFlags |= 2;
+  if (flags.some((f) => f.startsWith('earnings_capped'))) plausibilityFlags |= 4;
+  if (flags.some((f) => f.startsWith('rating_raised'))) plausibilityFlags |= 8;
+
+  return {
+    incomeBucket: bucketFor(signals.earnings, [20000, 35000, 50000]),
+    tenureBucket: bucketFor(signals.tenure, [6, 12, 24]),
+    completionBucket: bucketFor(signals.completionRate, [85, 92, 97]),
+    ratingBucket: bucketFor(signals.rating, [4.0, 4.5, 4.8]),
+    source: signals.source === 'reclaim_proof' ? 'reclaim' : 'fallback',
+    plausibilityFlags,
+    monthlyEarnings: signals.earnings,
+    tenureMonths: signals.tenure,
+    completionRate: Math.round(signals.completionRate * 100),
+  };
+}
+
+function applyStoredScore(onchain, computed) {
+  if (!onchain.score || onchain.score <= 0) {
+    return computed;
+  }
+  const tier = tierLabelFromBlueScore(onchain.score);
+  const config = BLUE_TIER_CONFIG[tier] || BLUE_TIER_CONFIG['Blue Basic'];
+  return {
+    ...computed,
+    score: onchain.score,
+    tier,
+    contractTier: onchain.tier > 0 ? onchain.tier : config.contractTier,
+    creditLimit: onchain.creditLimit > 0 ? onchain.creditLimit : computed.creditLimit,
+    apr: config.apr,
+  };
+}
+
+function computeDashboardScore(onchain, signals, history = null) {
+  const hasStoredScore = onchain.score && onchain.score > 0;
+  const computed = computeBlueScore(signals, hasStoredScore ? null : history);
+  return applyStoredScore(onchain, computed);
+}
+
+async function getDashboardRecord(address) {
+  const [onchain, history] = await Promise.all([
+    getOnchainBaseline(address),
+    getAcreHistory(address),
+  ]);
+  const signals = onchain.riderCount > 0
+    ? deriveOnchainSignals(onchain)
+    : deriveAddressSeedSignals(address);
+  const result = computeDashboardScore(onchain, signals, history);
+  return { onchain, history, signals, result };
 }
 
 // ---------------------------------------------------------------------------
@@ -936,9 +1231,9 @@ const BLUE_SCORE_THRESHOLDS = {
 };
 
 const BLUE_TIER_CONFIG = {
-  'Blue Prime': { contractTier: 3, multiplier: 1.5, floor: 40000, cap: 100000, apr: '10–12' },
-  'Blue Plus': { contractTier: 2, multiplier: 1.0, floor: 15000, cap: 50000, apr: '13–15' },
-  'Blue Basic': { contractTier: 1, multiplier: 0.5, floor: 5000, cap: 18000, apr: '16–18' },
+  'Blue Prime': { contractTier: 3, multiplier: 1.2, cap: 100000, apr: '10–12', underwritingApr: 0.12 },
+  'Blue Plus': { contractTier: 2, multiplier: 0.7, cap: 50000, apr: '13–15', underwritingApr: 0.15 },
+  'Blue Basic': { contractTier: 1, multiplier: 0.35, cap: 18000, apr: '16–18', underwritingApr: 0.18 },
 };
 
 function tierLabelFromBlueScore(score) {
@@ -955,8 +1250,20 @@ function nextTierForLabel(tier) {
 
 function creditLimitForTier(tier, earnings) {
   const config = BLUE_TIER_CONFIG[tier] || BLUE_TIER_CONFIG['Blue Basic'];
-  const rawLimit = Math.round((Number(earnings || 0) * config.multiplier) / 1000) * 1000;
-  return Math.max(config.floor, Math.min(rawLimit, config.cap));
+  const monthlyEarnings = Math.max(0, Number(earnings || 0));
+  const incomeLimit = monthlyEarnings * config.multiplier;
+  if (incomeLimit < 1000) return 0;
+
+  const maxAffordableEmi = monthlyEarnings * 0.40;
+  const monthlyRate = config.underwritingApr / 12;
+  const months = 12;
+  const dtiLimit = monthlyRate > 0
+    ? maxAffordableEmi * ((1 - Math.pow(1 + monthlyRate, -months)) / monthlyRate)
+    : maxAffordableEmi * months;
+
+  const finalLimit = Math.min(incomeLimit, dtiLimit, config.cap);
+  if (finalLimit < 5000) return 0;
+  return Math.floor(finalLimit / 1000) * 1000;
 }
 
 function computeBlueScore(signals, history = null) {
@@ -1028,7 +1335,7 @@ function computeBlueScore(signals, history = null) {
   const tierConfig = BLUE_TIER_CONFIG[blueLabel];
   const contractTier = tierConfig.contractTier;
 
-  // ── Credit limit: income-indexed within tier floor/cap ───────────────────
+  // ── Credit limit: income-indexed with DTI guardrails and no tier floors ──
   const creditLimit = creditLimitForTier(blueLabel, earnings);
   const apr = tierConfig.apr;
 
@@ -1258,14 +1565,22 @@ async function getOnchainBaseline(address) {
     ]);
     const creditLimit = Number(creditLimitRaw || 0);
     const eligibility = Number(eligibilityRaw || 0);
-    const [verified, tier, _cl, _ts, riderCount, riderRating] = Array.isArray(profileRaw) ? profileRaw : [];
+    const profile = normalizeFullProfile(profileRaw);
     return {
       creditLimit,
       eligibility,
-      verified: Number(verified) === 1,
-      tier: Number(tier || 0),
-      riderCount: Number(riderCount || 0),
-      riderRating: Number(riderRating || 0) / 100,
+      verified: profile.verified,
+      tier: profile.tier,
+      riderCount: profile.riderCount,
+      riderRating: profile.riderRating,
+      score: profile.score,
+      buckets: profile.buckets,
+      bucketBreakdown: profile.bucketBreakdown,
+      source: profile.source,
+      plausibilityFlags: profile.plausibilityFlags,
+      monthlyEarnings: profile.monthlyEarnings,
+      tenureMonths: profile.tenureMonths,
+      completionRate: profile.completionRate,
     };
   } catch {
     return {
@@ -1275,6 +1590,14 @@ async function getOnchainBaseline(address) {
       tier: 0,
       riderCount: 0,
       riderRating: 0,
+      score: 0,
+      buckets: 0,
+      bucketBreakdown: unpackBuckets(0),
+      source: '',
+      plausibilityFlags: 0,
+      monthlyEarnings: 0,
+      tenureMonths: 0,
+      completionRate: 0,
     };
   }
 }
@@ -1417,19 +1740,10 @@ app.get('/api/user/:address/full-profile', async (req, res) => {
       methodArgs: [address],
       appAccounts: [address],
     });
-    const [verified, tier, creditLimit, timestamp, riderCount, riderRating, platform] = Array.isArray(value) ? value : [];
     return res.json({
       success: true,
       address,
-      profile: {
-        verified: Number(verified) === 1,
-        tier,
-        creditLimit,
-        timestamp,
-        riderCount,
-        riderRating,
-        platform,
-      },
+      profile: normalizeFullProfile(value),
     });
   } catch (error) {
     return res.status(500).json({ success: false, message: error?.message || 'Failed to fetch full profile' });
@@ -1496,53 +1810,14 @@ app.get('/api/blue-score/:address', async (req, res) => {
     if (!algosdk.isValidAddress(address)) {
       return res.status(400).json({ success: false, message: 'Invalid Algorand address' });
     }
-    const [onchain, history] = await Promise.all([
-      getOnchainBaseline(address),
-      getAcreHistory(address),
-    ]);
-
-    let dashboardSignals;
-    if (onchain.riderCount > 0) {
-      // Real on-chain data from a submitted proof — use it directly.
-      // Earnings are back-calculated from the income-indexed credit limit.
-      const tierMultipliers = { 3: 1.5, 2: 1.0, 1: 0.5 };
-      const m = tierMultipliers[onchain.tier] || 0.5;
-      const estimatedEarnings = onchain.creditLimit > 0
-        ? Math.round(onchain.creditLimit / m)
-        : onchain.riderCount * 280; // rough ₹280/trip fallback
-      dashboardSignals = {
-        trips: onchain.riderCount,
-        rating: onchain.riderRating,
-        earnings: estimatedEarnings,
-        tenure: Math.max(1, Math.round(onchain.riderCount / 100)),
-        completionRate: Math.min(99, Math.round(85 + (onchain.riderRating - 4.0) * 20)),
-        source: 'onchain_derived',
-      };
-    } else {
-      // No proof submitted yet — deterministic seed from wallet address (consistent across loads).
-      const h = sha256Hex(address);
-      const s0 = parseInt(h.slice(0, 8), 16);
-      const s1 = parseInt(h.slice(8, 16), 16);
-      const s2 = parseInt(h.slice(16, 24), 16);
-      const s3 = parseInt(h.slice(24, 32), 16);
-      const s4 = parseInt(h.slice(32, 40), 16);
-      dashboardSignals = {
-        trips: 300 + (s0 % 1200),
-        rating: Number((3.80 + (s1 % 121) / 100).toFixed(2)),
-        earnings: 14000 + (s2 % 30000),
-        tenure: 2 + (s3 % 18),
-        completionRate: 80 + (s4 % 18),
-        source: 'address_seed',
-      };
-    }
-
-    const result = computeBlueScore(dashboardSignals, history);
+    const { onchain, history, signals, result } = await getDashboardRecord(address);
     const modelEligibility = result.creditLimit;
     const apr = result.apr;
     return res.json({
       success: true,
       address,
-      verifiedKyc: onchain.verified || dashboardSignals.source === 'onchain_derived',
+      canonicalSource: onchain.score > 0 ? 'onchain_profile' : 'preview_seed',
+      verifiedKyc: onchain.verified || signals.source === 'onchain_derived',
       score: result.score,
       tier: result.tier,
       contractTier: result.contractTier,
@@ -1550,7 +1825,7 @@ app.get('/api/blue-score/:address', async (req, res) => {
       creditLimit: modelEligibility,
       apr,
       breakdown: result.breakdown,
-      signals: dashboardSignals,
+      signals,
       history,
       scoreFreshnessDays: onchain.riderCount > 0 ? 0 : null,
       proofExpiresInDays: 28,
@@ -1565,16 +1840,21 @@ app.get('/api/blue-score/:address', async (req, res) => {
 app.post('/api/blue-score/simulate', async (req, res) => {
   try {
     const {
-      monthlyIncome, consistencyMonths, rating, activityDaysPerMonth, completionRate,
+      monthlyIncome, consistencyMonths, rating, activityDaysPerMonth, monthlyTrips, completionRate,
       currentScore = 0, currentTier = 'Blue Basic',
     } = req.body || {};
 
+    const months = Math.max(1, Math.round(Number(consistencyMonths) || 6));
+    const tripsPerMonth = Math.max(0, Math.round(
+      Number(monthlyTrips) || (Number(activityDaysPerMonth) * 15) || 0
+    ));
     const signals = {
       earnings: Number(monthlyIncome) || 20000,
-      tenure: Number(consistencyMonths) || 6,
+      tenure: months,
       rating: Number(rating) || 4.2,
-      trips: Number(activityDaysPerMonth) * 15 || 600, // ~15 trips/active day
+      trips: tripsPerMonth * months,
       completionRate: Number(completionRate) || 88,
+      monthlyTrips: tripsPerMonth,
     };
     const result = computeBlueScore(signals);
     const delta = result.score - Number(currentScore || 0);
@@ -1633,56 +1913,13 @@ app.get('/api/passport/:address', async (req, res) => {
     if (!algosdk.isValidAddress(address)) {
       return res.status(400).json({ success: false, message: 'Invalid Algorand address' });
     }
-    const [onchain, history] = await Promise.all([
-      getOnchainBaseline(address),
-      getAcreHistory(address),
-    ]);
-
-    // Build signals the same way /api/blue-score does.
-    let signals;
-    if (onchain.riderCount > 0) {
-      const tierMultipliers = { 3: 1.5, 2: 1.0, 1: 0.5 };
-      const m = tierMultipliers[onchain.tier] || 0.5;
-      const estimatedEarnings = onchain.creditLimit > 0 ? Math.round(onchain.creditLimit / m) : onchain.riderCount * 280;
-      signals = {
-        trips: onchain.riderCount,
-        rating: onchain.riderRating,
-        earnings: estimatedEarnings,
-        tenure: Math.max(1, Math.round(onchain.riderCount / 100)),
-        completionRate: Math.min(99, Math.round(85 + (onchain.riderRating - 4.0) * 20)),
-        source: 'onchain_derived',
-      };
-    } else {
-      const h = sha256Hex(address);
-      const s0 = parseInt(h.slice(0, 8), 16);
-      const s1 = parseInt(h.slice(8, 16), 16);
-      const s2 = parseInt(h.slice(16, 24), 16);
-      const s3 = parseInt(h.slice(24, 32), 16);
-      const s4 = parseInt(h.slice(32, 40), 16);
-      signals = {
-        trips: 300 + (s0 % 1200), rating: Number((3.80 + (s1 % 121) / 100).toFixed(2)),
-        earnings: 14000 + (s2 % 30000), tenure: 2 + (s3 % 18),
-        completionRate: 80 + (s4 % 18), source: 'address_seed',
-      };
-    }
-
-    const result = computeBlueScore(signals, history);
+    const { onchain, history, signals, result } = await getDashboardRecord(address);
     const nextTier = nextTierForLabel(result.tier);
     const pointsToNextTier = Math.max(0, nextTier.threshold - result.score);
 
-    // Journey derived from signals: show a realistic two-phase growth story.
-    const phaseOneTenure = Math.max(1, Math.round(signals.tenure * 0.45));
-    const phaseTwoTenure = signals.tenure - phaseOneTenure;
-    const phaseOneEarnings = Math.round(signals.earnings * 0.72);
-    const phaseTwoEarnings = signals.earnings;
-    const earnGrowth = phaseOneTenure > 0 && phaseOneEarnings > 0
-      ? Math.round(((phaseTwoEarnings - phaseOneEarnings) / phaseOneEarnings) * 100)
-      : 0;
-
-    const platforms = ['Uber Driver', 'Swiggy Delivery', 'Zomato Delivery', 'Rapido Bike'];
-    const h2 = sha256Hex(address + 'platform');
-    const p1idx = parseInt(h2.slice(0, 2), 16) % platforms.length;
-    const p2idx = (p1idx + 1) % platforms.length;
+    const platformLabel = signals.source === 'address_seed'
+      ? 'Preview Profile'
+      : `${signals.source === 'reclaim' || signals.source === 'reclaim_proof' ? 'Reclaim' : 'On-chain'} Verified Work`;
 
     return res.json({
       success: true,
@@ -1726,24 +1963,16 @@ app.get('/api/passport/:address', async (req, res) => {
       ],
       journey: [
         {
-          platform: platforms[p1idx],
-          tenure: `Months 1–${phaseOneTenure}`,
-          incomeBand: `₹${Math.round(phaseOneEarnings / 1000)}k–₹${Math.round(phaseOneEarnings * 1.12 / 1000)}k`,
-          rating: String(Math.max(3.8, signals.rating - 0.2).toFixed(1)),
-          completionRate: String(Math.max(80, signals.completionRate - 6)),
-          growthFromPrevious: null,
-        },
-        {
-          platform: platforms[p2idx],
-          tenure: `Months ${phaseOneTenure + 1}–${signals.tenure}`,
-          incomeBand: `₹${Math.round(phaseTwoEarnings * 0.9 / 1000)}k–₹${Math.round(phaseTwoEarnings / 1000)}k`,
+          platform: platformLabel,
+          tenure: `${signals.tenure} months verified`,
+          incomeBand: `₹${Math.round(signals.earnings / 1000)}k/mo`,
           rating: String(signals.rating.toFixed(1)),
           completionRate: String(signals.completionRate),
-          growthFromPrevious: earnGrowth > 0 ? String(earnGrowth) : null,
+          growthFromPrevious: null,
         },
       ],
       totalTenureMonths: signals.tenure,
-      totalGrowth: earnGrowth > 0 ? `+${earnGrowth}%` : 'Stable',
+      totalGrowth: history.returning ? 'Updated on re-verification' : 'First verified record',
       reliability: signals.completionRate >= 92 ? 'Zero gaps >7 days' : signals.completionRate >= 85 ? 'Consistent' : 'Improving consistency',
     });
   } catch (error) {
@@ -1757,33 +1986,7 @@ app.get('/api/growth/:address', async (req, res) => {
     if (!algosdk.isValidAddress(address)) {
       return res.status(400).json({ success: false, message: 'Invalid Algorand address' });
     }
-    const [onchain, history] = await Promise.all([
-      getOnchainBaseline(address),
-      getAcreHistory(address),
-    ]);
-
-    // Derive signals same as blue-score endpoint.
-    let signals;
-    if (onchain.riderCount > 0) {
-      const m = onchain.tier === 3 ? 1.5 : onchain.tier === 2 ? 1.0 : 0.5;
-      const est = onchain.creditLimit > 0 ? Math.round(onchain.creditLimit / m) : onchain.riderCount * 280;
-      signals = {
-        trips: onchain.riderCount, rating: onchain.riderRating, earnings: est,
-        tenure: Math.max(1, Math.round(onchain.riderCount / 100)),
-        completionRate: Math.min(99, Math.round(85 + (onchain.riderRating - 4.0) * 20)),
-      };
-    } else {
-      const h = sha256Hex(address);
-      signals = {
-        trips: 300 + (parseInt(h.slice(0, 8), 16) % 1200),
-        rating: Number((3.80 + (parseInt(h.slice(8, 16), 16) % 121) / 100).toFixed(2)),
-        earnings: 14000 + (parseInt(h.slice(16, 24), 16) % 30000),
-        tenure: 2 + (parseInt(h.slice(24, 32), 16) % 18),
-        completionRate: 80 + (parseInt(h.slice(32, 40), 16) % 18),
-      };
-    }
-
-    const current = computeBlueScore(signals, history);
+    const { history, signals, result: current } = await getDashboardRecord(address);
 
     // Compute exact gap to next tier.
     const nextTier = nextTierForLabel(current.tier);
@@ -1796,7 +1999,7 @@ app.get('/api/growth/:address', async (req, res) => {
     const simRating = computeBlueScore({ ...signals, rating: Math.min(5.0, signals.rating + 0.2) }, history);
     const simTenure = computeBlueScore({ ...signals, tenure: signals.tenure + 3 }, history);
     const simCompletion = computeBlueScore({ ...signals, completionRate: Math.min(100, signals.completionRate + 5) }, history);
-    const simTrips = computeBlueScore({ ...signals, trips: Math.min(3000, signals.trips + 200) }, history);
+    const simTrips = computeBlueScore({ ...signals, trips: signals.trips + 200 }, history);
 
     // Skills derived from platform signals.
     const skills = ['Gig platform operations'];
@@ -2447,9 +2650,9 @@ Five weighted dimensions:
 - **Completion Rate (10%)** — % of accepted trips completed. 70% = floor, 100% = ceiling.
 
 Score tiers:
-- **Blue Prime (700+):** Credit limit = earnings × 1.5 (₹40k–₹1L), APR 10–12%
-- **Blue Plus (530–699):** Credit limit = earnings × 1.0 (₹15k–₹50k), APR 13–15%
-- **Blue Basic (<530):** Credit limit = earnings × 0.5 (₹5k–₹18k), APR 16–18%
+- **Blue Prime (700+):** Credit limit = min(earnings × 1.2, DTI capacity, ₹1L cap), APR 10–12%
+- **Blue Plus (530–699):** Credit limit = min(earnings × 0.7, DTI capacity, ₹50k cap), APR 13–15%
+- **Blue Basic (<530):** Credit limit = min(earnings × 0.35, DTI capacity, ₹18k cap), APR 16–18%; under ₹5k is rejected
 
 Returning users (2+ verifications on ACRE) get a +20 point reputation bonus.
 
@@ -2464,7 +2667,7 @@ Returning users (2+ verifications on ACRE) get a +20 point reputation bonus.
 
 ## Verification Flow (How ACRE Works)
 1. Worker connects Pera or Defly wallet (Algorand)
-2. Worker opts into ACRE's Algorand smart contract (App ID: 758797725 on TestNet)
+2. Worker opts into ACRE's Algorand smart contract (App ID: 764223486 on TestNet)
 3. DigiLocker identity verification: Aadhaar OAuth via Setu API → boolean claims (Indian citizen, age 18+, verified human)
 4. Reclaim QR proof: Worker scans QR on phone → Reclaim opens TLS session to Uber/Swiggy API → generates ZK proof of trips/rating/earnings
 5. AlgoPlonk ZK proof: client-side circuit binds identity claims to wallet address via claimHash

@@ -19,7 +19,7 @@
 
 The **AcreVerification** contract is the on-chain core of the Acre protocol. It acts as a **privacy-preserving credit eligibility registry**.
 
-- Stores only **verified signals** (tier, credit limit, metadata)
+- Stores only **verified scoring outputs and compact metrics** (tier, score, credit limit, proof metadata)
 - Never stores raw income data
 - Only the designated **verifier** (backend) can write
 - Anyone can read eligibility (permissionless)
@@ -43,20 +43,29 @@ The **AcreVerification** contract is the on-chain core of the Acre protocol. It 
 | `verifier`       | Address  | Backend wallet allowed to verify     | Initially = admin |
 | `pcnt`           | Uint64   | Total number of proofs processed     | Starts at 0 |
 
+**Current TestNet App ID:** `764223486`
+
 ### Local State (Per User Wallet)
 
 | Key   | Type          | Description                              | Size     |
 |-------|---------------|------------------------------------------|----------|
 | `v`   | Uint8         | Verified flag (0 = no, 1 = yes)          | 1 byte   |
-| `t`   | Uint8         | Income tier (1, 2, or 3)                 | 1 byte   |
+| `t`   | Uint8         | Contract tier (1 = Basic, 2 = Plus, 3 = Prime) | 1 byte |
 | `l`   | Uint64        | Credit limit in rupees                   | 8 bytes  |
 | `ts`  | Uint64        | Verification timestamp (Unix)            | 8 bytes  |
 | `ph`  | Bytes[32]     | SHA256 hash of Reclaim proof             | 32 bytes |
 | `rc`  | Uint64        | Rider / transaction count                | 8 bytes  |
-| `rr`  | Uint64        | Rider rating × 100 (e.g. 469 = 4.69)    | 8 bytes  |
+| `rr`  | Uint64        | Rider rating × 100 (e.g. 469 = 4.69)     | 8 bytes  |
 | `p`   | String        | Platform identifier ("uber", etc.)       | variable |
+| `sc`  | Uint64        | Blue Score (300-900 product range)       | 8 bytes  |
+| `bk`  | Uint64        | Packed metric buckets                    | 8 bytes  |
+| `src` | String        | Verification source label                | variable |
+| `pf`  | Uint64        | Plausibility / policy flags              | 8 bytes  |
+| `me`  | Uint64        | Monthly earnings used for scoring        | 8 bytes  |
+| `tm`  | Uint64        | Tenure in months                         | 8 bytes  |
+| `cr`  | Uint64        | Completion rate × 100                    | 8 bytes  |
 
-**Total per user:** ~70 bytes
+**Local schema:** 12 uint values and 3 byte-slice values.
 
 ---
 
@@ -77,7 +86,17 @@ verify_income(
     proof_hash: abi.StaticBytes[Literal[32]],
     rider_count: abi.Uint64,
     rider_rating: abi.Uint64,
-    platform: abi.String
+    platform: abi.String,
+    score: abi.Uint16,
+    income_bucket: abi.Uint8,
+    tenure_bucket: abi.Uint8,
+    completion_bucket: abi.Uint8,
+    rating_bucket: abi.Uint8,
+    source: abi.String,
+    plausibility_flags: abi.Uint8,
+    monthly_earnings: abi.Uint64,
+    tenure_months: abi.Uint64,
+    completion_rate: abi.Uint64
 )
 ```
 
@@ -87,6 +106,7 @@ verify_income(
 - Tier must be between 1 and 3
 - If re-verification: new timestamp must be newer
 - Writes all local state atomically
+- Stores enough compact scoring context for dashboard, lender, and verification pages to read the canonical on-chain result
 - Increments global proof counter
 - Emits log event: `VERIFIED|...`
 
@@ -128,6 +148,13 @@ class UserProfile(abi.NamedTuple):
     rider_count: abi.Uint64
     rider_rating: abi.Uint64
     platform: abi.String
+    score: abi.Uint16
+    buckets: abi.Uint64
+    source: abi.String
+    plausibility_flags: abi.Uint8
+    monthly_earnings: abi.Uint64
+    tenure_months: abi.Uint64
+    completion_rate: abi.Uint64
 ```
 
 ---
@@ -191,13 +218,15 @@ const profile = await callReadMethod({
   methodArgs: [userAddress],
   appAccounts: [userAddress]
 });
-// Returns: [verified, tier, creditLimit, timestamp, riderCount, riderRating, platform]
+// Returns:
+// [verified, tier, creditLimit, timestamp, riderCount, riderRating, platform,
+//  score, buckets, source, plausibilityFlags, monthlyEarnings, tenureMonths, completionRate]
 ```
 
 ### 4. Listening to Events (Indexer)
 
 ```text
-Log: VERIFIED|ABCD...XYZ|tier|2|limit|25000|rides|2102|platform|uber
+Log: VERIFIED|ABCD...XYZ|tier|2|score|685|limit|25000|rides|2102|platform|uber
 ```
 
 ---
@@ -206,20 +235,25 @@ Log: VERIFIED|ABCD...XYZ|tier|2|limit|25000|rides|2102|platform|uber
 
 ```bash
 cd contracts/
-python acre_verifier.py
+python acre_verification.py
 # Generates:
 #   acre_approval.teal
 #   acre_clear.teal
 #   acre_abi.json
 ```
 
-Then deploy using `algokit` or `goal`.
+Deploy to TestNet with:
+
+```bash
+python contracts/deploy_testnet.py
+```
+
+The deployment script writes the active app ID to `contracts/deployed_testnet_app.json`.
 
 ---
 
 ## Future Extensions (Planned)
 
-- Reputation score tracking
 - Revocation / expiry mechanism
 - Multi-platform support in state
 - Box storage for larger metadata

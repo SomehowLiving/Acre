@@ -30,7 +30,7 @@ Acre enables gig workers to prove income eligibility using **Reclaim zk-TLS** + 
 
 **Core Flow (One Line):**
 
-Worker → Reclaim (ZK Proof) → Backend (Verification + Tiering) → Algorand (Immutable State) → Lender (Permissionless Read)
+Worker → Reclaim (ZK Proof) → Backend (Verification + Blue Score) → Algorand (Immutable State) → Lender (Permissionless Read)
 
 ---
 
@@ -41,8 +41,8 @@ Worker → Reclaim (ZK Proof) → Backend (Verification + Tiering) → Algorand 
 | **Gig Worker**         | acre-web (React) + Wallet  | Initiate proof, scan QR, approve |
 | **Reclaim Protocol**   | External zk-TLS Service    | Witness TLS, generate ZK proof |
 | **Acre Frontend**      | React/Vite + Reclaim SDK   | UI, wallet, Reclaim session |
-| **Acre Backend**       | Node.js Express            | Verify proof, calculate tier, submit to chain |
-| **Algorand Smart Contract** | PyTeal (ARC-4)        | Store state, enforce rules |
+| **Acre Backend**       | Node.js Express            | Verify proof, calculate Blue Score and affordability, submit to chain |
+| **Algorand Smart Contract** | Algorand Python + ARC-4 ABI | Store state, enforce rules |
 | **Lender / SDK**       | Any dApp / Fintech         | Read eligibility (permissionless) |
 
 ---
@@ -80,19 +80,20 @@ Worker → Reclaim (ZK Proof) → Backend (Verification + Tiering) → Algorand 
 
 6. **Backend Verification**  
    - `Reclaim.verifyProof(proof)` → Validates signatures  
-   - Extracts ride count, rating, UID  
+   - Extracts platform metrics used by the scoring model
    - Generates `proofHash = SHA256(JSON.stringify(proof))`
 
-7. **Credit Tier Calculation**  
-   Backend computes tier (1/2/3) and credit limit based on metrics.
+7. **Blue Score and Credit Limit Calculation**
+   Backend computes Blue Score, Blue tier, affordability-bounded credit limit, and score explanation metrics.
 
 8. **Submit to Algorand**  
    Backend (as verifier) calls `verify_income()` method with:
    - user_wallet, tier, credit_limit, timestamp, proof_hash, rider_count, rider_rating, platform
+   - score, metric buckets, source label, monthly earnings, tenure, completion rate
 
 9. **Smart Contract Execution**
    - Asserts: caller is verifier, user opted in, tier valid, timestamp fresh
-   - Writes local state (~70 bytes)
+   - Writes canonical local state used by dashboards and lender verification
    - Increments global proof count
    - Emits `VERIFIED|...` log
 
@@ -100,7 +101,7 @@ Worker → Reclaim (ZK Proof) → Backend (Verification + Tiering) → Algorand 
     Backend waits for confirmation → Returns success to frontend.
 
 11. **UI Update**  
-    Frontend shows: "✅ Tier 2 Verified — Credit Limit: ₹25,000"
+    Frontend shows the verified Blue Score, Blue tier, credit limit, proof hash, and transaction ID.
 
 ---
 
@@ -118,8 +119,12 @@ Worker → Reclaim (ZK Proof) → Backend (Verification + Tiering) → Algorand 
    ```json
    {
      "verified": true,
+     "score": 685,
      "tier": 2,
      "creditLimit": 25000,
+     "monthlyEarnings": 36000,
+     "tenureMonths": 18,
+     "completionRate": 92,
      "platform": "uber"
    }
    ```
@@ -170,11 +175,11 @@ Lender uses this signal to approve/deny loan (their own logic).
 stateDiagram-v2
     [*] --> Unverified
     Unverified --> OptedIn : Opt-in Transaction
-    OptedIn --> VerifiedTier1 : Successful verify_income()
-    VerifiedTier1 --> VerifiedTier2 : Re-verification (better metrics)
-    VerifiedTier2 --> VerifiedTier3 : Re-verification (elite metrics)
-    VerifiedTierX --> VerifiedTierY : Re-verification (any tier)
-    VerifiedTierX --> Unverified : (Not supported - state is permanent)
+    OptedIn --> BlueBasic : Successful verify_income()
+    BlueBasic --> BluePlus : Re-verification with improved metrics
+    BluePlus --> BluePrime : Re-verification with elite metrics
+    BlueTierX --> BlueTierY : Re-verification can update tier and score
+    BlueTierX --> Unverified : (Not supported - state is permanent)
 ```
 
 **Key Invariants:**
@@ -206,10 +211,10 @@ flowchart TD
     B --> C[ZK Proof ~5-10KB]
     C --> D[Frontend]
     D --> E[Backend /verify-proof]
-    E --> F[Verify + Tier Calc]
-    F --> G[proofHash + Tier Data]
+    E --> F[Verify + Blue Score + Limit]
+    F --> G[proofHash + Score Profile]
     G --> H[Algorand verify_income()]
-    H --> I[Local State ~70 bytes]
+    H --> I[Canonical Local State]
     I --> J[Lender Query]
     J --> K[Credit Decision]
 ```

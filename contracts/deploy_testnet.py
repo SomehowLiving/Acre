@@ -72,8 +72,10 @@ def main() -> int:
         # Matches acre_verification.py:
         # Global: admin(bytes), verifier(bytes), pcnt(uint64)
         global_schema = transaction.StateSchema(num_uints=1, num_byte_slices=2)
-        # Local: v,t,l,ts,rc,rr(uint64) + ph,p(bytes)
-        local_schema = transaction.StateSchema(num_uints=6, num_byte_slices=2)
+        # Local uints:
+        # v,t,l,ts,rc,rr + sc,bk,pf,me,tm,cr = 12
+        # Local bytes: ph,p,src = 3
+        local_schema = transaction.StateSchema(num_uints=12, num_byte_slices=3)
 
         params = client.suggested_params()
         txn = transaction.ApplicationCreateTxn(
@@ -84,6 +86,7 @@ def main() -> int:
             clear_program=clear_program,
             global_schema=global_schema,
             local_schema=local_schema,
+            extra_pages=1,
         )
 
         signed_txn = txn.sign(private_key)
