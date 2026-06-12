@@ -50,6 +50,7 @@
 
 - [Architecture](#architecture)
 - [Smart Contracts](#smart-contracts)
+- [Project Structure](#project-structure)
 - [Tech Stack](#-tech-stack)
 
 **Build**
@@ -358,6 +359,34 @@ if score >= 530 and limit > 0:
 else:
     print("Decline or request updated verification")
 ```
+
+---
+
+## Project Structure
+
+This repository keeps the demo product, backend verifier, scoring model, and Algorand contract in one workspace.
+
+```text
+.
+├── server.js              # Main Express API: proof verification, DigiLocker mock flow, scoring, contract writes
+├── scoring.js             # Blue Score model, synthetic signal generation, tier and credit-limit policy
+├── rider-server.js        # Smaller legacy/mock rider API used for isolated demos
+├── advisorPrompt.js       # System prompt for the Acre advisor/chat experience
+├── acre-web/              # Primary React + Vite frontend for workers, lenders, dashboards, and simulator
+│   ├── src/               # Pages, components, wallet context, API client, Reclaim integration
+│   ├── public/            # Static browser assets
+│   ├── demo/              # Frontend demo screenshots
+│    
+├── contracts/             # Algorand contract source, compiled TEAL, ABI, deploy/call scripts, TestNet app data
+├── income-verifier/       # Standalone React proof-verifier experiment kept separate from the main Acre UI
+├── docs/                  # Product, API, architecture, score, verification, GTM, and flow documentation
+├── demo/                  # README/marketing screenshots for the end-to-end product walkthrough
+├── digi-aloplonk.md       # DigiLocker + AlgoPlonk integration notes and implementation plan
+├── technical.md           # Technical architecture and implementation reference
+└── SCREENS.md             # Visual walkthrough of the Acre product surfaces
+```
+
+The normal local loop is: run `server.js` for the backend, run `acre-web` for the app, and use `contracts/` only when rebuilding or redeploying the Algorand verification contract.
 
 ---
 

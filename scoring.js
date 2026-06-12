@@ -378,6 +378,7 @@ module.exports = {
   creditLimitForTier,
   deriveAddressSeedSignals,
   deriveOnchainSignals,
+  deriveSyntheticGigProfile,
   nextTierForLabel,
   normalizeGigSignals,
   scoreRecordFromSignals,
